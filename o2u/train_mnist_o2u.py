@@ -1,25 +1,36 @@
+"""
+mnist using o2u-net to specify noisy samples
+"""
+import argparse
+import logging
 import os
 import time
-import logging
+
+# from torchvision.models import resnet18, resnet34, resnet50
+import matplotlib.pyplot as plt
 import numpy as np
+import torch
 import torch.optim as optim
 from torch.utils.data import DataLoader, Subset
 from torchvision import datasets, transforms, utils
-# from torchvision.models import resnet18, resnet34, resnet50
-import matplotlib.pyplot as plt
-from models import *
 
-pretrain_batch_size = 128
-cycle_train_batch_size = 16
-retrain_batch_size = 128
+from models.models import *
 
-pretrain_epochs = 60
-# cycle_train_epochs = 200
-retrain_epochs = 60
-# train_epochs = 100
+parser = argparse.ArgumentParser()
+parser.add_argument('-name', type=str, help='project name', default='mnist_o2u')
+parser.add_argument('-dataset_path', type=str, help='relative path of dataset', default='../dataset')
+parser.add_argument('-pretrain_lr', type=float, help='pretrain learning rate', default=0.001)
+parser.add_argument('-pretrain_batch_size', type=int, help='pretrain batch size', default=128)
+parser.add_argument('-pretrain_epochs', type=int, help='pretrain epochs', default=60)
 
-pretrain_lr = 0.001
-retrain_lr = 0.005
+parser.add_argument('-cycle_train_batch_size', type=int, help='cycle train batch size', default=16)
+
+parser.add_argument('-retrain_lr', type=float, help='retrain learning rate', default=0.005)
+parser.add_argument('-retrain_batch_size', type=int, help='retrain batch size', default=128)
+parser.add_argument('-retrain_epochs', type=int, help='retrain epochs', default=60)
+
+parser.add_argument('-log_dir', type=str, help='log dir', default='output')
+args = parser.parse_args()
 
 
 def create_dataloader(batch_size):
@@ -28,14 +39,15 @@ def create_dataloader(batch_size):
     ])
 
     train_set = datasets.MNIST(
-        './dataset', train=True, transform=transform, download=True)
+        args.dataset_path, train=True, transform=transform, download=True)
     test_set = datasets.MNIST(
-        './dataset', train=False, transform=transform, download=False)
+        args.dataset_path, train=False, transform=transform, download=False)
 
     # split trainset into train-val set
     train_set, val_set = torch.utils.data.random_split(train_set, [
         50000, 10000])
 
+    # generate data loader
     train_loader = DataLoader(
         train_set, batch_size=batch_size, shuffle=False)
 
@@ -66,20 +78,21 @@ def train(model, train_loader, optimizer, epoch, device, train_loss_lst, train_a
         train_loss += loss.item()
 
         # show batch0 dataset
-        # if batch_idx == 0 and epoch == 0:
-        #     fig = plt.figure()
-        #     inputs = inputs.detach().cpu()  # convert to cpu
-        #     grid = utils.make_grid(inputs)
-        #     print(labels)
-        #     plt.imshow(grid.numpy().transpose((1, 2, 0)))
-        #     plt.show()
+        if batch_idx == 0 and epoch == 0:
+            fig = plt.figure()
+            inputs = inputs.detach().cpu()  # convert to cpu
+            grid = utils.make_grid(inputs)
+            plt.imshow(grid.numpy().transpose((1, 2, 0)))
+            plt.savefig(os.path.join(output_path, 'batch0.png'))
+            plt.close(fig)
 
-        # print loss and accuracy
-        if (batch_idx + 1) % 50 == 0:
+        # print train loss and accuracy
+        if (batch_idx + 1) % 100 == 0:
             print('Train Epoch: {} [{}/{} ({:.1f}%)]  Loss: {:.6f}'
                   .format(epoch, batch_idx * len(inputs), len(train_loader.dataset),
                           100. * batch_idx / len(train_loader), loss.item()))
 
+    # record loss and accuracy
     train_loss /= len(train_loader)  # must divide
     train_loss_lst.append(train_loss)
     train_acc_lst.append(correct / len(train_loader.dataset))
@@ -104,6 +117,7 @@ def validate(model, val_loader, device, val_loss_lst, val_acc_lst):
             pred = output.max(1, keepdim=True)[1]
             correct += pred.eq(target.view_as(pred)).sum().item()
 
+    # print val loss and accuracy
     val_loss /= len(val_loader)
     print('\nVal set: Average loss: {:.6f}, Accuracy: {}/{} ({:.2f}%)\n'
           .format(val_loss, correct, len(val_loader.dataset),
@@ -112,6 +126,7 @@ def validate(model, val_loader, device, val_loss_lst, val_acc_lst):
                  .format(val_loss, correct, len(val_loader.dataset),
                          100. * correct / len(val_loader.dataset)))
 
+    # record loss and accuracy
     val_loss_lst.append(val_loss)
     val_acc_lst.append(correct / len(val_loader.dataset))
     return val_loss_lst, val_acc_lst
@@ -134,7 +149,7 @@ def test(model, test_loader, device):
             pred = output.max(1, keepdim=True)[1]
             correct += pred.eq(target.view_as(pred)).sum().item()
 
-    # record loss and acc
+    # print test loss and acc
     test_loss /= len(test_loader)
     print('Test set: Average loss: {:.6f}, Accuracy: {}/{} ({:.2f}%)\n'
           .format(test_loss, correct, len(test_loader.dataset),
@@ -160,7 +175,8 @@ def cyclical_train(model, train_loader, optimizer, epoch, device, train_loss_lst
         criterion = nn.CrossEntropyLoss(reduction='none')
         loss = criterion(outputs, labels)
         loss = loss.detach().cpu().numpy()
-        sample_loss[batch_idx * cycle_train_batch_size:batch_idx * cycle_train_batch_size + inputs.size(0)] += loss
+        sample_loss[
+        batch_idx * args.cycle_train_batch_size:batch_idx * args.cycle_train_batch_size + inputs.size(0)] += loss
         criterion = nn.CrossEntropyLoss()
         loss = criterion(outputs, labels)
         optimizer.zero_grad()
@@ -174,6 +190,7 @@ def cyclical_train(model, train_loader, optimizer, epoch, device, train_loss_lst
                   .format(epoch, batch_idx * len(inputs), len(train_loader.dataset),
                           100. * batch_idx / len(train_loader), loss.item()))
 
+    # record loss and accuracy
     train_loss /= len(train_loader)  # must divide
     train_loss_lst.append(train_loss)
     train_acc_lst.append(correct / len(train_loader.dataset))
@@ -181,7 +198,7 @@ def cyclical_train(model, train_loader, optimizer, epoch, device, train_loss_lst
 
 
 def plot_loss_acc(train_loss_lst, val_loss_lst, train_acc_lst, val_acc_lst, epochs, fig_path):
-    # plot loss and accuracy
+    # plot loss and accuracy curve
     fig = plt.figure('Loss and acc')
     plt.plot(range(epochs), train_loss_lst, 'g', label='train loss')
     plt.plot(range(epochs), val_loss_lst, 'k', label='val loss')
@@ -192,14 +209,14 @@ def plot_loss_acc(train_loss_lst, val_loss_lst, train_acc_lst, val_acc_lst, epoc
     plt.ylabel('acc-loss')
     plt.legend(loc="upper right")
     plt.savefig(fig_path)
-    plt.close()
+    plt.close(fig)
 
 
-def o2u():
+if __name__ == "__main__":
     torch.manual_seed(0)
     # create output folder
     now = time.strftime('%Y-%m-%d-%H-%M-%S', time.localtime())
-    output_path = os.path.join('output', now)
+    output_path = os.path.join(args.log_dir, args.name + now)
     os.makedirs(output_path)
 
     logging.basicConfig(level=logging.DEBUG,
@@ -212,23 +229,23 @@ def o2u():
 
     # ==========================================Step1: Pre-training=============================================
     logging.info('Step1: Pre-training')
-    # prepare dataset model and optimizer
-    train_loader, val_loader, test_loader, train_set = create_dataloader(batch_size=pretrain_batch_size)
+    # prepare dataset, model and optimizer
+    train_loader, val_loader, test_loader, train_set = create_dataloader(batch_size=args.pretrain_batch_size)
     model = MNISTNet().to(device)
-    optimizer = optim.SGD(model.parameters(), lr=pretrain_lr, momentum=0.9, weight_decay=5e-4)
+    optimizer = optim.SGD(model.parameters(), lr=args.pretrain_lr, momentum=0.9, weight_decay=5e-4)
 
     # train validate and test
     train_loss_lst, val_loss_lst = [], []
     train_acc_lst, val_acc_lst = [], []
-    for epoch in range(pretrain_epochs):
+    for epoch in range(args.pretrain_epochs):
         train_loss_lst, train_acc_lst = train(model, train_loader, optimizer,
                                               epoch, device, train_loss_lst, train_acc_lst)
         val_loss_lst, val_acc_lst = validate(
             model, val_loader, device, val_loss_lst, val_acc_lst)
     test(model, test_loader, device)
 
-    # plot loss and accuracy
-    plot_loss_acc(train_loss_lst, val_loss_lst, train_acc_lst, val_acc_lst, pretrain_epochs,
+    # plot loss and accuracy curve
+    plot_loss_acc(train_loss_lst, val_loss_lst, train_acc_lst, val_acc_lst, args.pretrain_epochs,
                   os.path.join(output_path, 'o2u_mnist_pretrain.png'))
     # =======================================================================================================
 
@@ -238,7 +255,7 @@ def o2u():
     cycle_rounds = 4
     r1, r2 = 0.01, 0.001
     t = 0  # total epochs idx
-    train_loader, val_loader, test_loader, train_set = create_dataloader(batch_size=cycle_train_batch_size)
+    train_loader, val_loader, test_loader, train_set = create_dataloader(batch_size=args.cycle_train_batch_size)
     sample_loss = np.zeros(len(train_set))
 
     # cycle train
@@ -257,7 +274,7 @@ def o2u():
             t += 1
         test(model, test_loader, device)
 
-    # plot loss and accuracy
+    # plot loss and accuracy curve
     plot_loss_acc(train_loss_lst, val_loss_lst, train_acc_lst, val_acc_lst, t,
                   os.path.join(output_path, 'o2u_mnist_cyclicaltrain.png'))
 
@@ -277,11 +294,11 @@ def o2u():
     logging.info('Step3: Training on clean data')
     # prepare dataset model and optimizer
     train_loader = DataLoader(
-        clean_set, batch_size=retrain_batch_size, shuffle=True)
+        clean_set, batch_size=args.retrain_batch_size, shuffle=True)
     model = MNISTNet().to(device)
-    optimizer = optim.SGD(model.parameters(), lr=retrain_lr, momentum=0.9, weight_decay=5e-4)
+    optimizer = optim.SGD(model.parameters(), lr=args.retrain_lr, momentum=0.9, weight_decay=5e-4)
 
-    # save noisy data
+    # save noisy pics
     noisy_loader = DataLoader(
         noisy_set, batch_size=len(noisy_set), shuffle=False)
     for batch_idx, (inputs, labels) in enumerate(noisy_loader):
@@ -292,25 +309,21 @@ def o2u():
         logging.info('Noisy labels:' + str(labels[:104].detach().cpu().numpy().tolist()))
         plt.imshow(grid.numpy().transpose((1, 2, 0)))
         plt.savefig(os.path.join(output_path, 'mnist_noisy.png'))
-        plt.close()
+        plt.close(fig)
 
-    # train validate and test
+    # train, validate and test
     train_loss_lst, val_loss_lst = [], []
     train_acc_lst, val_acc_lst = [], []
-    for epoch in range(retrain_epochs):
+    for epoch in range(args.retrain_epochs):
         train_loss_lst, train_acc_lst = train(model, train_loader, optimizer,
                                               epoch, device, train_loss_lst, train_acc_lst)
         val_loss_lst, val_acc_lst = validate(
             model, val_loader, device, val_loss_lst, val_acc_lst)
     test(model, test_loader, device)
 
-    # plot loss and accuracy
-    plot_loss_acc(train_loss_lst, val_loss_lst, train_acc_lst, val_acc_lst, retrain_epochs,
+    # plot loss and accuracy curve
+    plot_loss_acc(train_loss_lst, val_loss_lst, train_acc_lst, val_acc_lst, args.retrain_epochs,
                   os.path.join(output_path, 'o2u_mnist_retrain.png'))
     # save model
-    torch.save(model, os.path.join(output_path, "o2u_mnist.pth"))
+    torch.save(model.state_dict(), os.path.join(output_path, args.name + ".pth"))
     # ======================================================================================================
-
-
-if __name__ == "__main__":
-    o2u()
