@@ -22,6 +22,7 @@ parser.add_argument('-batch_size', type=int, help='batch size', default=64)
 parser.add_argument('-lr', type=float, help='learning rate', default=0.01)
 parser.add_argument('-epochs', type=int, help='training epochs', default=100)
 parser.add_argument('-b', type=float, help='b', default=0.03)
+parser.add_argument('-num_classes', type=int, help='number of classes', default=10)
 parser.add_argument('-log_dir', type=str, help='log dir', default='output')
 args = parser.parse_args()
 
@@ -163,7 +164,7 @@ if __name__ == "__main__":
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    model = resnet18(num_classes=10).to(device)
+    model = resnet18(num_classes=args.num_classes).to(device)
 
     optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9)
 

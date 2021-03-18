@@ -7,9 +7,9 @@ import random
 from torchvision import datasets
 
 
-class MNISTNoise(datasets.MNIST):
-    def __init__(self, noise_rate, **kwargs):
-        super().__init__(**kwargs)
+class MNISTNoisy(datasets.MNIST):
+    def __init__(self, root, train=True, transform=None, target_transform=None, download=False, noise_rate=0.0):
+        super().__init__(root, train=train, transform=transform, target_transform=target_transform, download=download)
         self.noise_targets = self.targets
         self.noise_rate = noise_rate
         self.create_symmetric_label_noise()
@@ -28,4 +28,4 @@ class MNISTNoise(datasets.MNIST):
 
 
 if __name__ == '__main__':
-    noise_mnist_dataset = MNISTNoise(noise_rate=0.5, root='./dataset', train=True, download=True)
+    mnist_noisy = MNISTNoisy(noise_rate=0.5, root='./dataset', train=True, download=True)

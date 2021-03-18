@@ -28,6 +28,7 @@ parser.add_argument('-lr', type=float, help='learning rate', default=0.01)
 parser.add_argument('-epochs', type=int, help='training epochs', default=100)
 parser.add_argument('-t', type=float, help='temperature T', default=3.0)
 parser.add_argument('-alpha', type=float, help='alpha', default=0.5)
+parser.add_argument('-num_classes', type=int, help='number of classes', default=10)
 parser.add_argument('-log_dir', type=str, help='log dir', default='output')
 args = parser.parse_args()
 
@@ -185,7 +186,7 @@ if __name__ == "__main__":
 
     # create student model
     model = CIFAR10Net().to(device)  # student model
-    # model = resnet18(num_classes=10).to(device)
+    # model = resnet18(num_classes=args.num_classes).to(device)
 
     optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9)
 

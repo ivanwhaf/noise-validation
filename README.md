@@ -8,7 +8,7 @@ Some noisy-labels handling methods and training tricks implementation.
 Using several models to inference, calculating each sample's weighted average loss
 ### 3.O2U-Net
 Title: O2U-Net: A Simple Noisy Label Detection Approach for Deep Neural Networks  
-Paper: [https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber=9008796](https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber=9008796)
+Paper: [https://openaccess.thecvf.com/content_ICCV_2019/papers/Huang_O2U-Net_A_Simple_Noisy_Label_Detection_Approach_for_Deep_Neural_ICCV_2019_paper.pdf](https://openaccess.thecvf.com/content_ICCV_2019/papers/Huang_O2U-Net_A_Simple_Noisy_Label_Detection_Approach_for_Deep_Neural_ICCV_2019_paper.pdf)
 ### 4.Mean-Teacher
 Title: Mean teachers are better role models:Weight-averaged consistency targets improve semi-supervised deep learning results  
 Paper: [https://arxiv.org/pdf/1703.01780.pdf](https://arxiv.org/pdf/1703.01780v6.pdf)
@@ -39,3 +39,6 @@ Paper: [https://arxiv.org/pdf/1812.05159.pdf](https://arxiv.org/pdf/1812.05159v3
 ### 13.Meta-Weight-Net
 Title: Meta-Weight-Net: Learning an Explicit Mapping For Sample Weighting
 Paper: [https://arxiv.org/pdf/1902.07379.pdf](https://arxiv.org/pdf/1902.07379v6.pdf)
+### 14.SCE
+Title: Symmetric Cross Entropy for Robust Learning with Noisy Labels
+Paper: [https://arxiv.org/pdf/1908.06112.pdf](https://arxiv.org/pdf/1908.06112V1.pdf)

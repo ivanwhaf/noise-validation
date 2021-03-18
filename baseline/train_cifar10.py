@@ -21,6 +21,7 @@ parser.add_argument('-dataset_path', type=str, help='relative path of dataset', 
 parser.add_argument('-batch_size', type=int, help='batch size', default=128)
 parser.add_argument('-lr', type=float, help='learning rate', default=0.01)
 parser.add_argument('-epochs', type=int, help='training epochs', default=100)
+parser.add_argument('-num_classes', type=int, help='number of classes', default=10)
 parser.add_argument('-log_dir', type=str, help='log dir', default='output')
 args = parser.parse_args()
 
@@ -162,7 +163,7 @@ if __name__ == "__main__":
 
     model = CIFAR10Net().to(device)
     # model = CIFAR10LeNet().to(device)
-    # model = resnet18(num_classes=10).to(device)
+    # model = resnet18(num_classes=args.num_classes).to(device)
 
     optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9)
 

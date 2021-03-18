@@ -1,6 +1,6 @@
 """
-2021/3/11
-train cifar10 Mean-Teacher
+2021/3/18
+train mnist using sce loss
 """
 import argparse
 import os
@@ -11,44 +11,42 @@ import torch
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms, utils
-from torchvision.models import resnet18
 
 from models.models import *
-from teacher_model import TeacherModel
+from sce_loss import SCELoss
 
 parser = argparse.ArgumentParser()
-parser.add_argument('-name', type=str, help='project name', default='cifar10_mean_teacher')
+parser.add_argument('-name', type=str, help='project name', default='mnist_sce')
 parser.add_argument('-dataset_path', type=str, help='relative path of dataset', default='../dataset')
 parser.add_argument('-batch_size', type=int, help='batch size', default=64)
 parser.add_argument('-lr', type=float, help='learning rate', default=0.01)
 parser.add_argument('-epochs', type=int, help='training epochs', default=100)
-parser.add_argument('-beta', type=float, help='beta', default=0.85)
 parser.add_argument('-num_classes', type=int, help='number of classes', default=10)
+parser.add_argument('-alpha', type=float, help='alpha', default=0.1)
+parser.add_argument('-beta', type=float, help='beta', default=0.9)
 parser.add_argument('-log_dir', type=str, help='log dir', default='output')
 args = parser.parse_args()
 
 
 def create_dataloader():
     transform = transforms.Compose([
-        transforms.RandomHorizontalFlip(),
-        # transforms.RandomGrayscale(),
         transforms.ToTensor(),
-        # transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+        transforms.Normalize(mean=(0.1307,), std=(0.3081,))
     ])
 
     # load dataset
-    train_set = datasets.CIFAR10(
+    train_set = datasets.MNIST(
         args.dataset_path, train=True, transform=transform, download=True)
-    test_set = datasets.CIFAR10(
+    test_set = datasets.MNIST(
         args.dataset_path, train=False, transform=transform, download=False)
 
     # split train set into train-val set
     train_set, val_set = torch.utils.data.random_split(train_set, [
-        45000, 5000])
+        50000, 10000])
 
-    # generate data loader
+    # generate DataLoader
     train_loader = DataLoader(
-        train_set, batch_size=args.batch_size, shuffle=True)
+        train_set, batch_size=args.batch_size, shuffle=False)
 
     val_loader = DataLoader(val_set, batch_size=args.batch_size, shuffle=False)
 
@@ -69,7 +67,7 @@ def train(model, train_loader, optimizer, epoch, device, train_loss_lst, train_a
         pred = outputs.max(1, keepdim=True)[1]
         correct += pred.eq(labels.view_as(pred)).sum().item()
 
-        criterion = nn.CrossEntropyLoss()
+        criterion = SCELoss(alpha=args.alpha, beta=args.beta, num_classes=args.num_classes, device=device)  # SCE loss
         loss = criterion(outputs, labels)
         optimizer.zero_grad()
         loss.backward()
@@ -163,8 +161,7 @@ if __name__ == "__main__":
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    model = resnet18(num_classes=args.num_classes).to(device)
-    teacher_model = TeacherModel(model, beta=args.beta)
+    model = MNISTNet().to(device)
 
     optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9)
 
@@ -175,21 +172,14 @@ if __name__ == "__main__":
     for epoch in range(args.epochs):
         train_loss_lst, train_acc_lst = train(model, train_loader, optimizer,
                                               epoch, device, train_loss_lst, train_acc_lst)
-
-        teacher_model.update()  # update mean teacher model after student model backward params
-        teacher_model.apply_teacher()  # use mean teacher model before evaluating
-
         val_loss_lst, val_acc_lst = validate(
             model, val_loader, device, val_loss_lst, val_acc_lst)
-
-        teacher_model.restore_student()  # restore to student model after evaluating
 
         # modify learning rate
         if epoch in [40, 60, 80]:
             args.lr *= 0.1
             optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9)
 
-    teacher_model.apply_teacher()
     test(model, test_loader, device)
 
     # plot loss and accuracy curve

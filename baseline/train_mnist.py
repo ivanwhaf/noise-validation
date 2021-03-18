@@ -20,6 +20,7 @@ parser.add_argument('-dataset_path', type=str, help='relative path of dataset', 
 parser.add_argument('-batch_size', type=int, help='batch size', default=64)
 parser.add_argument('-lr', type=float, help='learning rate', default=0.01)
 parser.add_argument('-epochs', type=int, help='training epochs', default=100)
+parser.add_argument('-num_classes', type=int, help='number of classes', default=10)
 parser.add_argument('-log_dir', type=str, help='log dir', default='output')
 args = parser.parse_args()
 
