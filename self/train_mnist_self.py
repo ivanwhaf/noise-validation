@@ -1,12 +1,11 @@
 """
-2021/3/8
-train mnist Mean-Teacher
+2021/3/19
+train mnist self
 """
 import argparse
 import os
 import time
 
-# from torchvision.models import resnet18, resnet34, resnet50
 import matplotlib.pyplot as plt
 import torch
 import torch.optim as optim
@@ -17,12 +16,12 @@ from models.models import *
 from teacher_model import TeacherModel
 
 parser = argparse.ArgumentParser()
-parser.add_argument('-name', type=str, help='project name', default='mnist_mean_teacher')
+parser.add_argument('-name', type=str, help='project name', default='mnist_self')
 parser.add_argument('-dataset_path', type=str, help='relative path of dataset', default='../dataset')
 parser.add_argument('-batch_size', type=int, help='batch size', default=64)
 parser.add_argument('-lr', type=float, help='learning rate', default=0.01)
 parser.add_argument('-epochs', type=int, help='training epochs', default=100)
-parser.add_argument('-beta', type=float, help='beta', default=0.85)
+parser.add_argument('-num_classes', type=int, help='number of classes', default=10)
 parser.add_argument('-log_dir', type=str, help='log dir', default='output')
 args = parser.parse_args()
 
@@ -45,14 +44,14 @@ def create_dataloader():
 
     # generate DataLoader
     train_loader = DataLoader(
-        train_set, batch_size=args.batch_size, shuffle=True)
+        train_set, batch_size=args.batch_size, shuffle=False)
 
     val_loader = DataLoader(val_set, batch_size=args.batch_size, shuffle=False)
 
     test_loader = DataLoader(
         test_set, batch_size=args.batch_size, shuffle=False)
 
-    return train_loader, val_loader, test_loader
+    return train_loader, val_loader, test_loader, train_set, val_set, test_set
 
 
 def train(model, train_loader, optimizer, epoch, device, train_loss_lst, train_acc_lst):
@@ -156,7 +155,7 @@ if __name__ == "__main__":
     output_path = os.path.join(args.log_dir, args.name + now)
     os.makedirs(output_path)
 
-    train_loader, val_loader, test_loader = create_dataloader()  # get data loader
+    train_loader, val_loader, test_loader, train_set, val_set, test_set = create_dataloader()  # get data loader
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -172,21 +171,14 @@ if __name__ == "__main__":
     for epoch in range(args.epochs):
         train_loss_lst, train_acc_lst = train(model, train_loader, optimizer,
                                               epoch, device, train_loss_lst, train_acc_lst)
-
-        teacher_model.update()  # update mean teacher model after student model backward params
-        teacher_model.apply_teacher()  # use mean teacher model before evaluating
-
         val_loss_lst, val_acc_lst = validate(
             model, val_loader, device, val_loss_lst, val_acc_lst)
-
-        teacher_model.restore_student()  # restore to student model after evaluating
 
         # modify learning rate
         if epoch in [40, 60, 80]:
             args.lr *= 0.1
             optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9)
 
-    teacher_model.apply_teacher()
     test(model, test_loader, device)
 
     # plot loss and accuracy curve

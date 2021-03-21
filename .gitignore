@@ -128,9 +128,8 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
-# dataset
+# customize
 dataset/
-
 .idea/
-
 test.py
+output/
