@@ -4,7 +4,9 @@ create noise dataset
 """
 import random
 
-from torchvision import datasets
+import matplotlib.pyplot as plt
+from torch.utils.data import DataLoader
+from torchvision import datasets, transforms, utils
 
 
 class MNISTNoisy(datasets.MNIST):
@@ -24,8 +26,25 @@ class MNISTNoisy(datasets.MNIST):
         return super().__len__()
 
     def __getitem__(self, index):
-        return super().__getitem__()
+        return super().__getitem__(index)
 
 
 if __name__ == '__main__':
-    mnist_noisy = MNISTNoisy(noise_rate=0.5, root='./dataset', train=True, download=True)
+    transform = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize(mean=(0.1307,), std=(0.3081,))
+    ])
+    mnist_noisy = MNISTNoisy(noise_rate=0.5, transform=transform, root='../dataset', train=True, download=True)
+
+    noisy_loader = DataLoader(
+        mnist_noisy, batch_size=64, shuffle=False)
+
+    for batch_idx, (inputs, labels) in enumerate(noisy_loader):
+        fig = plt.figure()
+        inputs = inputs.detach().cpu()  # convert to cpu
+        grid = utils.make_grid(inputs)
+        print('Noisy labels:', labels)
+        plt.imshow(grid.numpy().transpose((1, 2, 0)))
+        plt.savefig('./mnist_noisy.png')
+        plt.close(fig)
+        break

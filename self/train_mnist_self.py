@@ -7,13 +7,14 @@ import os
 import time
 
 import matplotlib.pyplot as plt
+import numpy as np
 import torch
 import torch.optim as optim
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Subset
 from torchvision import datasets, transforms, utils
 
+from ensemble import EnsembleModel, EnsemblePrediction
 from models.models import *
-from teacher_model import TeacherModel
 
 parser = argparse.ArgumentParser()
 parser.add_argument('-name', type=str, help='project name', default='mnist_self')
@@ -22,6 +23,7 @@ parser.add_argument('-batch_size', type=int, help='batch size', default=64)
 parser.add_argument('-lr', type=float, help='learning rate', default=0.01)
 parser.add_argument('-epochs', type=int, help='training epochs', default=100)
 parser.add_argument('-num_classes', type=int, help='number of classes', default=10)
+parser.add_argument('-beta', type=float, help='beta', default=0.9)
 parser.add_argument('-log_dir', type=str, help='log dir', default='output')
 args = parser.parse_args()
 
@@ -52,6 +54,12 @@ def create_dataloader():
         test_set, batch_size=args.batch_size, shuffle=False)
 
     return train_loader, val_loader, test_loader, train_set, val_set, test_set
+
+
+def get_dataloader(dataset):
+    data_loader = DataLoader(
+        dataset, batch_size=args.batch_size, shuffle=False)
+    return data_loader
 
 
 def train(model, train_loader, optimizer, epoch, device, train_loss_lst, train_acc_lst):
@@ -160,33 +168,82 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     model = MNISTNet().to(device)
-    teacher_model = TeacherModel(model, beta=args.beta)
+    ensemble_model = EnsembleModel(model, beta=args.beta)
 
     optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9)
 
     train_loss_lst, val_loss_lst = [], []
     train_acc_lst, val_acc_lst = [], []
 
+    # initialize ensemble predictions
+    pred = np.zeros((len(train_set), args.num_classes))
+    ensemble_pred = EnsemblePrediction(pred, beta=args.beta)
+
+    # initial Mean-teacher ensemble model training
+    train_loss_lst, train_acc_lst = train(model, train_loader, optimizer,
+                                          -1, device, train_loss_lst, train_acc_lst)
+    ensemble_model.update()
+
     # main loop(train,val,test)
     for epoch in range(args.epochs):
-        train_loss_lst, train_acc_lst = train(model, train_loader, optimizer,
+        filter_set = train_set
+        filter_loader = get_dataloader(filter_set)
+
+        # evaluate model output z hat
+        for batch_idx, (inputs, labels) in enumerate(filter_loader):
+            inputs, labels = inputs.to(device), labels.to(device)
+
+            ensemble_model.apply_ensemble()
+            outputs = model(inputs)
+            ensemble_model.restore_model()
+
+            outputs = outputs.detach().cpu().numpy()  # batch_size*num_classes
+            for i in range(inputs.size(0)):
+                pred[batch_idx * args.batch_size + i] = outputs[i]
+
+        ensemble_pred.update()
+        ensemble_pred.apply_ensemble()
+
+        # verify agreement of ensemble predictions & label ---> y = z hat?
+        filter_index = []
+        pred_tensor = torch.Tensor(pred).to(device)
+        pred_label = pred_tensor.max(1, keepdim=True)[1]
+        for batch_idx, (inputs, labels) in enumerate(filter_loader):
+            inputs, labels = inputs.to(device), labels.to(device)
+
+            for i, label in enumerate(labels):
+                if label == pred_label[batch_idx * args.batch_size + i]:
+                    filter_index.append(batch_idx * args.batch_size + i)
+
+        ensemble_pred.restore_pred()
+        filter_set = Subset(filter_set, filter_index)  # filtered dataset
+        filter_loader = get_dataloader(filter_set)
+
+        # train Mean-Teacher model on filtered label set
+        train_loss_lst, train_acc_lst = train(model, filter_loader, optimizer,
                                               epoch, device, train_loss_lst, train_acc_lst)
+        ensemble_model.update()
+
+        # validate
+        ensemble_model.apply_ensemble()
         val_loss_lst, val_acc_lst = validate(
             model, val_loader, device, val_loss_lst, val_acc_lst)
+        ensemble_model.restore_model()
 
         # modify learning rate
         if epoch in [40, 60, 80]:
             args.lr *= 0.1
             optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9)
 
+    ensemble_model.apply_ensemble()
     test(model, test_loader, device)
 
     # plot loss and accuracy curve
     fig = plt.figure('Loss and acc')
-    plt.plot(range(args.epochs), train_loss_lst, 'g', label='train loss')
-    plt.plot(range(args.epochs), val_loss_lst, 'k', label='val loss')
-    plt.plot(range(args.epochs), train_acc_lst, 'r', label='train acc')
-    plt.plot(range(args.epochs), val_acc_lst, 'b', label='val acc')
+    plt.plot(range(args.epochs + 1), train_loss_lst, 'g', label='train loss')
+    plt.plot(range(args.epochs + 1), val_loss_lst, 'k', label='val loss')
+    plt.plot(range(args.epochs + 1), train_acc_lst, 'r', label='train acc')
+    plt.plot(range(args.epochs + 1), val_acc_lst, 'b', label='val acc')
     plt.grid(True)
     plt.xlabel('epoch')
     plt.ylabel('acc-loss')
