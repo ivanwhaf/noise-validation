@@ -14,7 +14,7 @@ from torch.utils.data import DataLoader
 from torchvision import datasets, transforms, utils
 
 from models.models import *
-from smoothing import smooth_labels
+from smoothing import LabelSmoothLoss
 
 parser = argparse.ArgumentParser()
 parser.add_argument('-name', type=str, help='project name', default='mnist_smoothing')
@@ -59,17 +59,17 @@ def train(model, train_loader, optimizer, epoch, device, train_loss_lst, train_a
     correct = 0
     train_loss = 0
     for batch_idx, (inputs, labels) in enumerate(train_loader):
-        smoothed_labels = smooth_labels(labels, num_classes=10, smoothing=0.5)
+        # smoothed_labels = smooth_labels(labels, num_classes=10, smoothing=0.5)
         inputs, labels = inputs.to(device), labels.to(device)
-
 
         outputs = model(inputs)
 
         pred = outputs.max(1, keepdim=True)[1]
         correct += pred.eq(labels.view_as(pred)).sum().item()
 
-        criterion = nn.CrossEntropyLoss()
-        loss = criterion(outputs, smoothed_labels)
+        # criterion = nn.CrossEntropyLoss()
+        criterion = LabelSmoothLoss()
+        loss = criterion(outputs, labels)
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()

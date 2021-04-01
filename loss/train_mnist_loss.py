@@ -1,8 +1,7 @@
 """
-train mnist by inferenced loss
+train mnist by inference loss
 """
 import argparse
-import logging
 import os
 import time
 
@@ -43,9 +42,9 @@ def train_loss():
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = MNISTNet().to(device)
+    model = model.load_state_dict(torch.load('model.pth'))
 
     # =====================================Inference ============================================
-    logging.info('Inference')
     ranks = []
     criterion = nn.CrossEntropyLoss(reduction='none')
     train_set, test_set = load_dataset()
@@ -62,11 +61,15 @@ def train_loss():
             ranks.append((batch_idx * args.inference_batch_size + i, loss[i]))
         print('inference batch done', batch_idx)
     print('inference done!')
+
+    # sort by loss
     ranks.sort(key=lambda x: x[1], reverse=True)  # [(0,3),...]
     print(ranks[:100])
+
     selected_indices = [item[0] for item in ranks[:5000]]
     retrain_set = Subset(train_set, selected_indices)
     print('selected indices!')
+    print('retrain set length:', len(retrain_set))
     # ================================================================================================
 
 
