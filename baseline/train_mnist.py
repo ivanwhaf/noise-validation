@@ -32,23 +32,18 @@ def create_dataloader():
     ])
 
     # load dataset
-    train_set = datasets.MNIST(
-        args.dataset_path, train=True, transform=transform, download=True)
-    test_set = datasets.MNIST(
-        args.dataset_path, train=False, transform=transform, download=False)
+    train_set = datasets.MNIST(args.dataset_path, train=True, transform=transform, download=True)
+    test_set = datasets.MNIST(args.dataset_path, train=False, transform=transform, download=False)
 
     # split train set into train-val set
-    train_set, val_set = torch.utils.data.random_split(train_set, [
-        50000, 10000])
+    train_set, val_set = torch.utils.data.random_split(train_set, [50000, 10000])
 
     # generate DataLoader
-    train_loader = DataLoader(
-        train_set, batch_size=args.batch_size, shuffle=True)
+    train_loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=True)
 
     val_loader = DataLoader(val_set, batch_size=args.batch_size, shuffle=False)
 
-    test_loader = DataLoader(
-        test_set, batch_size=args.batch_size, shuffle=False)
+    test_loader = DataLoader(test_set, batch_size=args.batch_size, shuffle=False)
 
     return train_loader, val_loader, test_loader
 

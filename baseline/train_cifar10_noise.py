@@ -1,6 +1,6 @@
 """
-2021/3/6
-train cifar10 baseline
+2021/5/8
+train cifar10 baseline noisy
 """
 import argparse
 import os
@@ -11,11 +11,12 @@ import torch
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms, utils
+from torchvision.models import resnet18
 
 from models.models import *
-
+from utils.dataset import CIFAR10Noisy
 parser = argparse.ArgumentParser()
-parser.add_argument('-name', type=str, help='project name', default='cifar10_baseline')
+parser.add_argument('-name', type=str, help='project name', default='cifar10_baseline_noisy')
 parser.add_argument('-dataset_path', type=str, help='relative path of dataset', default='../dataset')
 parser.add_argument('-batch_size', type=int, help='batch size', default=128)
 parser.add_argument('-lr', type=float, help='learning rate', default=0.01)
@@ -33,12 +34,14 @@ def create_dataloader():
         # transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
     ])
 
-    # load dataset
-    train_set = datasets.CIFAR10(args.dataset_path, train=True, transform=transform, download=True)
-    test_set = datasets.CIFAR10(args.dataset_path, train=False, transform=transform, download=False)
+    # load noisy dataset
+    cifar10_noisy = CIFAR10Noisy(transform=transform, root=args.dataset_path, train=True, download=True)
+    cifar10_noisy.uniform_mix(noise_rate=1.0, mixing_ratio=0.9, num_classes=10)
+    # cifar10_noisy.flip(noise_rate=1.0, corruption_prob=0.5, num_classes=10)
 
-    # split train set into train-val set
-    train_set, val_set = torch.utils.data.random_split(train_set, [45000, 5000])
+    train_set = cifar10_noisy
+    test_set = datasets.CIFAR10(args.dataset_path, train=False, transform=transform, download=False)
+    val_set = test_set
 
     # generate data loader
     train_loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=True)

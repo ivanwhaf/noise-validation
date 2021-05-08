@@ -68,7 +68,7 @@ def train(model, train_loader, optimizer, epoch, device, train_loss_lst, train_a
         correct += pred.eq(labels.view_as(pred)).sum().item()
 
         # criterion = nn.CrossEntropyLoss()
-        criterion = LabelSmoothLoss()
+        criterion = LabelSmoothLoss(smoothing=0.1)
         loss = criterion(outputs, labels)
         optimizer.zero_grad()
         loss.backward()

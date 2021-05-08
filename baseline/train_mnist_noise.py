@@ -1,6 +1,6 @@
 """
-2021/3/6
-train cifar10 baseline
+2021/5/8
+train mnist baseline noisy
 """
 import argparse
 import os
@@ -13,11 +13,12 @@ from torch.utils.data import DataLoader
 from torchvision import datasets, transforms, utils
 
 from models.models import *
+from utils.dataset import MNISTNoisy
 
 parser = argparse.ArgumentParser()
-parser.add_argument('-name', type=str, help='project name', default='cifar10_baseline')
+parser.add_argument('-name', type=str, help='project name', default='mnist_baseline_noisy')
 parser.add_argument('-dataset_path', type=str, help='relative path of dataset', default='../dataset')
-parser.add_argument('-batch_size', type=int, help='batch size', default=128)
+parser.add_argument('-batch_size', type=int, help='batch size', default=64)
 parser.add_argument('-lr', type=float, help='learning rate', default=0.01)
 parser.add_argument('-epochs', type=int, help='training epochs', default=100)
 parser.add_argument('-num_classes', type=int, help='number of classes', default=10)
@@ -27,20 +28,20 @@ args = parser.parse_args()
 
 def create_dataloader():
     transform = transforms.Compose([
-        transforms.RandomHorizontalFlip(),
-        # transforms.RandomGrayscale(),
         transforms.ToTensor(),
-        # transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+        transforms.Normalize(mean=(0.1307,), std=(0.3081,))
     ])
 
-    # load dataset
-    train_set = datasets.CIFAR10(args.dataset_path, train=True, transform=transform, download=True)
-    test_set = datasets.CIFAR10(args.dataset_path, train=False, transform=transform, download=False)
+    # load noisy dataset
+    mnist_noisy = MNISTNoisy(transform=transform, root=args.dataset_path, train=True, download=True)
+    mnist_noisy.uniform_mix(noise_rate=1.0, mixing_ratio=0.9, num_classes=10)
+    # mnist_noisy.flip(noise_rate=1.0, corruption_prob=0.5, num_classes=10)
 
-    # split train set into train-val set
-    train_set, val_set = torch.utils.data.random_split(train_set, [45000, 5000])
+    train_set = mnist_noisy
+    test_set = datasets.MNIST(args.dataset_path, train=False, transform=transform, download=False)
+    val_set = test_set
 
-    # generate data loader
+    # generate DataLoader
     train_loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=True)
 
     val_loader = DataLoader(val_set, batch_size=args.batch_size, shuffle=False)
@@ -73,7 +74,7 @@ def train(model, train_loader, optimizer, epoch, device, train_loss_lst, train_a
             fig = plt.figure()
             inputs = inputs.detach().cpu()  # convert to cpu
             grid = utils.make_grid(inputs)
-            plt.imshow(grid.numpy().transpose((1, 2, 0)))  # 3*274*274->274*274*3
+            plt.imshow(grid.numpy().transpose((1, 2, 0)))
             plt.savefig(os.path.join(output_path, 'batch0.png'))
             plt.close(fig)
 
@@ -155,17 +156,14 @@ if __name__ == "__main__":
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    model = CIFAR10Net().to(device)
-    # model = CIFAR10LeNet().to(device)
-    # model = resnet18(num_classes=args.num_classes).to(device)
+    model = MNISTNet().to(device)
 
     optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9)
 
-    # train, validate and test
     train_loss_lst, val_loss_lst = [], []
     train_acc_lst, val_acc_lst = [], []
 
-    # main loop
+    # main loop(train,val,test)
     for epoch in range(args.epochs):
         train_loss_lst, train_acc_lst = train(model, train_loader, optimizer,
                                               epoch, device, train_loss_lst, train_acc_lst)
