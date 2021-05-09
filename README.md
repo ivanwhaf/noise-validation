@@ -1,4 +1,4 @@
-# noise-verify
+# noise-validation
 
 Some noisy-label papers and training tricks implementation.
 
@@ -6,7 +6,7 @@ Some noisy-label papers and training tricks implementation.
 
 ### 1.Baseline
 
-**MNIST** and **CIAFR10** Dataset baseline using conv net
+**MNIST** and **CIFAR10** Dataset baseline using conv net
 
 ### 2.QBC-Loss
 
