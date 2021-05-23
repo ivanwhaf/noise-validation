@@ -103,8 +103,7 @@ if __name__ == '__main__':
     mnist_noisy.uniform_mix(noise_rate=1.0, mixing_ratio=0.5, num_classes=10)
     # mnist_noisy.flip(noise_rate=1.0, corruption_prob=0.5, num_classes=10)
 
-    noisy_loader = DataLoader(
-        mnist_noisy, batch_size=64, shuffle=False)
+    noisy_loader = DataLoader(mnist_noisy, batch_size=64, shuffle=False)
 
     # save noisy figure
     inputs, labels = next(iter(noisy_loader))

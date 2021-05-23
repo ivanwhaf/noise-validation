@@ -67,7 +67,7 @@ def train(model, train_loader, optimizer, epoch, device, train_loss_lst, train_a
 
         criterion = nn.CrossEntropyLoss()
         loss = criterion(outputs, labels)
-        flood = (loss - args.b).abs() + args.b  # this is it!
+        flood = (loss - args.b).abs() + args.b  # this is it!!!
         optimizer.zero_grad()
         # loss.backward()
         flood.backward()

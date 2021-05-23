@@ -9,6 +9,7 @@ import time
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader, Subset
 from torchvision import datasets, transforms, utils
@@ -20,7 +21,7 @@ parser.add_argument('-name', type=str, help='project name', default='mnist_varia
 parser.add_argument('-dataset_path', type=str, help='relative path of dataset', default='../dataset')
 parser.add_argument('-batch_size', type=int, help='batch size', default=64)
 parser.add_argument('-lr', type=float, help='learning rate', default=0.01)
-parser.add_argument('-epochs', type=int, help='training epochs', default=100)
+parser.add_argument('-epochs', type=int, help='training epochs', default=10)
 parser.add_argument('-log_dir', type=str, help='log dir', default='output')
 args = parser.parse_args()
 
@@ -53,7 +54,8 @@ def create_dataloader():
     return train_loader, val_loader, test_loader, train_set, val_set, test_set
 
 
-def train(model, train_loader, optimizer, epoch, device, train_loss_lst, train_acc_lst, sample_pred):
+def train(model, train_loader, optimizer, epoch, device, train_loss_lst, train_acc_lst, sample_pred_label,
+          sample_pred_conf):
     model.train()  # Set the module in training mode
     correct = 0
     train_loss = 0
@@ -61,19 +63,17 @@ def train(model, train_loader, optimizer, epoch, device, train_loss_lst, train_a
         inputs, labels = inputs.to(device), labels.to(device)
         outputs = model(inputs)
 
-        pred = outputs.max(1, keepdim=True)[1]
-        correct += pred.eq(labels.view_as(pred)).sum().item()
+        pred_label = outputs.max(1, keepdim=True)[1]
+        correct += pred_label.eq(labels.view_as(pred_label)).sum().item()
+        pred_conf = F.softmax(outputs).max(1, keepdim=True)[0]
 
-        # calculate variance
-        # variance = torch.std(outputs, dim=1)
-        # k = int(inputs.size(0) * 0.95)
-        # _, index = torch.topk(variance, k)
+        # record prediction label
+        sample_pred_label[batch_idx * args.batch_size:batch_idx * args.batch_size + inputs.size(0), epoch] = pred_label[
+                                                                                                             :].squeeze().detach().cpu().numpy()  # label
 
-        # sample_pred[batch_idx * args.batch_size:batch_idx * args.batch_size + inputs.size(0)][
-        # epoch:epoch + 1] = pred.detach().cpu().numpy()
-        # record prediction label/confidence
-        for i in range(inputs.size(0)):
-            sample_pred[batch_idx * args.batch_size + i][epoch] = pred[i]  # label
+        # record prediction confidence
+        sample_pred_conf[batch_idx * args.batch_size:batch_idx * args.batch_size + inputs.size(0), epoch] = pred_conf[
+                                                                                                            :].squeeze().detach().cpu().numpy()  # confidence
 
         criterion = nn.CrossEntropyLoss()
         loss = criterion(outputs, labels)
@@ -102,7 +102,7 @@ def train(model, train_loader, optimizer, epoch, device, train_loss_lst, train_a
     train_loss /= len(train_loader)  # must divide iter num
     train_loss_lst.append(train_loss)
     train_acc_lst.append(correct / len(train_loader.dataset))
-    return train_loss_lst, train_acc_lst, sample_pred
+    return train_loss_lst, train_acc_lst, sample_pred_label, sample_pred_conf
 
 
 def validate(model, val_loader, device, val_loss_lst, val_acc_lst):
@@ -176,13 +176,17 @@ if __name__ == "__main__":
 
     train_loss_lst, val_loss_lst = [], []
     train_acc_lst, val_acc_lst = [], []
-    sample_pred = np.zeros((len(train_set), args.epochs))  # each sample's prediction, to calculate prediction variance
-    print(sample_pred.shape)
 
-    # main loop(train,val,test)
+    # each sample's label/confidence prediction, for calculating prediction variance
+    sample_pred_label = np.zeros((len(train_set), args.epochs))
+    sample_pred_conf = np.zeros((len(train_set), args.epochs))
+
+    # main loop (train, val, test)
     for epoch in range(args.epochs):
-        train_loss_lst, train_acc_lst, sample_pred = train(model, train_loader, optimizer,
-                                                           epoch, device, train_loss_lst, train_acc_lst, sample_pred)
+        train_loss_lst, train_acc_lst, sample_pred_label, sample_pred_conf = train(model, train_loader, optimizer,
+                                                                                   epoch, device, train_loss_lst,
+                                                                                   train_acc_lst, sample_pred_label,
+                                                                                   sample_pred_conf)
         val_loss_lst, val_acc_lst = validate(
             model, val_loader, device, val_loss_lst, val_acc_lst)
 
@@ -207,12 +211,17 @@ if __name__ == "__main__":
     plt.show()
     plt.close(fig)
 
-    # rank pred variance
-    print(sample_pred[:100], sample_pred.shape)
-    variance = np.std(sample_pred, axis=1)
-    print(variance[:100], variance.shape)
+    # calculate prediction variance
+    print('sample pred label:', sample_pred_label[:10, :], sample_pred_label.shape)
+    print('sample pred confidence:', sample_pred_conf[:10, :], sample_pred_conf.shape)
+
+    # calculate pred variance
+    variance = np.var(sample_pred_label, axis=1)  # label variance
+    # variance = np.var(sample_pred_conf, axis=1)  # conf variance
+    print('variance:', variance[:10], variance.shape)
     np.save(os.path.join(output_path, "variance.npy"), variance)
 
+    # rank variance
     ranks = [(idx, var) for idx, var in enumerate(variance.tolist())]
     ranks.sort(key=lambda x: x[1], reverse=True)
 
@@ -221,16 +230,15 @@ if __name__ == "__main__":
     noisy_set = Subset(train_set, noisy_indices)  # noisy set
 
     # save noisy samples
-    noisy_loader = DataLoader(
-        noisy_set, batch_size=len(noisy_set), shuffle=False)
-    for batch_idx, (inputs, labels) in enumerate(noisy_loader):
-        fig = plt.figure()
-        inputs = inputs[:100].detach().cpu()  # convert to cpu
-        grid = utils.make_grid(inputs)
-        print('Noisy labels:', labels)
-        plt.imshow(grid.numpy().transpose((1, 2, 0)))
-        plt.savefig(os.path.join(output_path, 'noisy.png'))
-        plt.close(fig)
+    noisy_loader = DataLoader(noisy_set, batch_size=len(noisy_set), shuffle=False)
+    inputs, labels = next(iter(noisy_loader))
+    fig = plt.figure('Noisy pics')
+    inputs = inputs[:100].detach().cpu()  # convert to cpu
+    grid = utils.make_grid(inputs)
+    print('Noisy labels:', labels)
+    plt.imshow(grid.numpy().transpose((1, 2, 0)))
+    plt.savefig(os.path.join(output_path, 'noisy.png'))
+    plt.close(fig)
 
     # save model
     torch.save(model.state_dict(), os.path.join(output_path, args.name + ".pth"))

@@ -162,10 +162,9 @@ if __name__ == "__main__":
 
     # main loop(train,val,test)
     for epoch in range(args.epochs):
-        train_loss_lst, train_acc_lst = train(model, train_loader, optimizer,
-                                              epoch, device, train_loss_lst, train_acc_lst)
-        val_loss_lst, val_acc_lst = validate(
-            model, val_loader, device, val_loss_lst, val_acc_lst)
+        train_loss_lst, train_acc_lst = train(model, train_loader, optimizer, epoch, device, train_loss_lst,
+                                              train_acc_lst)
+        val_loss_lst, val_acc_lst = validate(model, val_loader, device, val_loss_lst, val_acc_lst)
 
         # modify learning rate
         if epoch in [40, 60, 80]:

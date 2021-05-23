@@ -180,11 +180,10 @@ if __name__ == "__main__":
     ensemble_pred = EnsemblePrediction(pred, beta=args.beta)
 
     # initial Mean-teacher ensemble model training
-    train_loss_lst, train_acc_lst = train(model, train_loader, optimizer,
-                                          -1, device, train_loss_lst, train_acc_lst)
+    train_loss_lst, train_acc_lst = train(model, train_loader, optimizer, -1, device, train_loss_lst, train_acc_lst)
     ensemble_model.update()
 
-    # main loop(train,val,test)
+    # main loop (train, val, test)
     for epoch in range(args.epochs):
         filter_set = train_set
         filter_loader = get_dataloader(filter_set)
@@ -240,10 +239,10 @@ if __name__ == "__main__":
 
     # plot loss and accuracy curve
     fig = plt.figure('Loss and acc')
-    plt.plot(range(args.epochs + 1), train_loss_lst, 'g', label='train loss')
-    plt.plot(range(args.epochs + 1), val_loss_lst, 'k', label='val loss')
-    plt.plot(range(args.epochs + 1), train_acc_lst, 'r', label='train acc')
-    plt.plot(range(args.epochs + 1), val_acc_lst, 'b', label='val acc')
+    plt.plot(range(args.epochs), train_loss_lst, 'g', label='train loss')
+    plt.plot(range(args.epochs), val_loss_lst, 'k', label='val loss')
+    plt.plot(range(args.epochs), train_acc_lst, 'r', label='train acc')
+    plt.plot(range(args.epochs), val_acc_lst, 'b', label='val acc')
     plt.grid(True)
     plt.xlabel('epoch')
     plt.ylabel('acc-loss')

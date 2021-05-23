@@ -209,21 +209,21 @@ if __name__ == "__main__":
     ranks = [(idx, forgetting) for idx, forgetting in enumerate(sample_forgetting.tolist())]
     ranks.sort(key=lambda x: x[1], reverse=True)
     print(ranks[:100])
+
     # sub noisy set and clean set
     noisy_indices = [item[0] for item in ranks[:100]]  # subtract top 100 noisy data from dataset
     noisy_set = Subset(train_set, noisy_indices)  # noisy set
 
     # save noisy samples
-    noisy_loader = DataLoader(
-        noisy_set, batch_size=len(noisy_set), shuffle=False)
-    for batch_idx, (inputs, labels) in enumerate(noisy_loader):
-        fig = plt.figure()
-        inputs = inputs[:100].detach().cpu()  # convert to cpu
-        grid = utils.make_grid(inputs)
-        print('Noisy labels:', labels)
-        plt.imshow(grid.numpy().transpose((1, 2, 0)))
-        plt.savefig(os.path.join(output_path, 'noisy.png'))
-        plt.close(fig)
+    noisy_loader = DataLoader(noisy_set, batch_size=len(noisy_set), shuffle=False)
+    inputs, labels = next(iter(noisy_loader))
+    fig = plt.figure()
+    inputs = inputs[:100].detach().cpu()  # convert to cpu
+    grid = utils.make_grid(inputs)
+    print('Noisy labels:', labels)
+    plt.imshow(grid.numpy().transpose((1, 2, 0)))
+    plt.savefig(os.path.join(output_path, 'noisy.png'))
+    plt.close(fig)
 
     # save model
     torch.save(model.state_dict(), os.path.join(output_path, args.name + ".pth"))

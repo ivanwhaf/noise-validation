@@ -74,10 +74,10 @@ def train(model, teacher_model, train_loader, optimizer, epoch, device, train_lo
         criterion2 = nn.KLDivLoss()
 
         outputs = model(inputs)
-        loss1 = criterion1(outputs, labels)  # hard target loss
-
         pred = outputs.max(1, keepdim=True)[1]
         correct += pred.eq(labels.view_as(pred)).sum().item()
+
+        loss1 = criterion1(outputs, labels)  # hard target loss
 
         t = args.t  # T
         outputs_student = F.log_softmax(outputs / t, dim=1)

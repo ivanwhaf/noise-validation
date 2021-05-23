@@ -282,6 +282,7 @@ if __name__ == "__main__":
     ranks = [(idx, loss) for idx, loss in enumerate(sample_loss.tolist())]
     ranks.sort(key=lambda x: x[1], reverse=True)
     print(ranks[:50])
+
     # sub noisy set and clean set
     noisy_indices = [item[0] for item in ranks[:100]]  # subtract top 100 noisy data from dataset
     noisy_set = Subset(train_set, noisy_indices)  # noisy set
@@ -292,24 +293,23 @@ if __name__ == "__main__":
 
     # =====================================Step3: Training on clean data====================================
     logging.info('Step3: Training on clean data')
-    # prepare dataset model and optimizer
-    train_loader = DataLoader(
-        clean_set, batch_size=args.retrain_batch_size, shuffle=True)
-    model = MNISTNet().to(device)
-    optimizer = optim.SGD(model.parameters(), lr=args.retrain_lr, momentum=0.9, weight_decay=5e-4)
 
     # save noisy pics
-    noisy_loader = DataLoader(
-        noisy_set, batch_size=len(noisy_set), shuffle=False)
-    for batch_idx, (inputs, labels) in enumerate(noisy_loader):
-        fig = plt.figure()
-        inputs = inputs[:104].detach().cpu()  # convert to cpu
-        grid = utils.make_grid(inputs)
-        print('Noisy labels:', labels)
-        logging.info('Noisy labels:' + str(labels[:104].detach().cpu().numpy().tolist()))
-        plt.imshow(grid.numpy().transpose((1, 2, 0)))
-        plt.savefig(os.path.join(output_path, 'mnist_noisy.png'))
-        plt.close(fig)
+    noisy_loader = DataLoader(noisy_set, batch_size=len(noisy_set), shuffle=False)
+    inputs, labels = next(iter(noisy_loader))
+    fig = plt.figure()
+    inputs = inputs[:104].detach().cpu()  # convert to cpu
+    grid = utils.make_grid(inputs)
+    print('Noisy labels:', labels)
+    logging.info('Noisy labels:' + str(labels[:104].detach().cpu().numpy().tolist()))
+    plt.imshow(grid.numpy().transpose((1, 2, 0)))
+    plt.savefig(os.path.join(output_path, 'mnist_noisy.png'))
+    plt.close(fig)
+
+    # prepare dataset model and optimizer
+    train_loader = DataLoader(clean_set, batch_size=args.retrain_batch_size, shuffle=True)
+    model = MNISTNet().to(device)
+    optimizer = optim.SGD(model.parameters(), lr=args.retrain_lr, momentum=0.9, weight_decay=5e-4)
 
     # train, validate and test
     train_loss_lst, val_loss_lst = [], []

@@ -4,7 +4,7 @@ Ensemble prediction
 """
 
 
-class EnsembleModel:
+class EnsembleModel(object):
     """
     Ensemble Model (Mean Teacher)
     """
@@ -38,7 +38,7 @@ class EnsembleModel:
         self.backup = {}
 
 
-class EnsemblePrediction:
+class EnsemblePrediction(object):
     """
     Ensemble Predictions
     pred: numpy array len_dataset*num_classes
