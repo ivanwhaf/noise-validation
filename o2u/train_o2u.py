@@ -279,7 +279,7 @@ if __name__ == "__main__":
                   os.path.join(output_path, 'o2u_mnist_cyclicaltrain.png'))
 
     # rank loss of each sample
-    ranks = [(idx, loss) for idx, loss in enumerate(sample_loss.tolist())]
+    ranks = [(idx, loss) for idx, loss in enumerate(list(sample_loss))]
     ranks.sort(key=lambda x: x[1], reverse=True)
     print(ranks[:50])
 

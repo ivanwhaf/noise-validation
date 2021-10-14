@@ -3,7 +3,7 @@ Teacher Model: EMA Model
 """
 
 
-class TeacherModel(objects):
+class TeacherModel:
     """
     Mean Teacher Model class
     """

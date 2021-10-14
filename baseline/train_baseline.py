@@ -1,65 +1,104 @@
 """
-2021/3/11
-train cifar10 Mean-Teacher
+2021/9/30
+train baseline
 """
 import argparse
 import os
 import time
 
 import matplotlib.pyplot as plt
+import numpy as np
 import torch
+import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Subset
 from torchvision import datasets, transforms, utils
-from torchvision.models import resnet18
 
-from models.models import *
-from teacher_model import TeacherModel
+from models import MNISTNet, CNN9Layer, CIFAR10Net
 
 parser = argparse.ArgumentParser()
-parser.add_argument('-name', type=str, help='project name', default='cifar10_mean_teacher')
+parser.add_argument('-project_name', type=str, help='project name', default='cifar10_baseline')
 parser.add_argument('-dataset_path', type=str, help='relative path of dataset', default='../dataset')
-parser.add_argument('-batch_size', type=int, help='batch size', default=64)
-parser.add_argument('-lr', type=float, help='learning rate', default=0.01)
-parser.add_argument('-epochs', type=int, help='training epochs', default=100)
-parser.add_argument('-beta', type=float, help='beta', default=0.85)
+parser.add_argument('-dataset', type=str, help='dataset type', default='cifar10')
 parser.add_argument('-num_classes', type=int, help='number of classes', default=10)
+parser.add_argument('-epochs', type=int, help='training epochs', default=100)
+parser.add_argument('-batch_size', type=int, help='batch size', default=128)
+parser.add_argument('-lr', type=float, help='learning rate', default=0.01)
+parser.add_argument('-l2_reg', type=float, help='l2 regularization', default=1e-4)
+parser.add_argument('-seed', type=int, help='numpy and pytorch seed', default=0)
 parser.add_argument('-log_dir', type=str, help='log dir', default='output')
 args = parser.parse_args()
 
 
-def create_dataloader():
-    transform = transforms.Compose([
-        transforms.RandomHorizontalFlip(),
-        # transforms.RandomGrayscale(),
-        transforms.ToTensor(),
-        # transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
-    ])
+def create_dataloader(dataset_type, root):
+    if dataset_type == 'mnist':
+        transform = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize(mean=(0.1307,), std=(0.3081,))
+        ])
 
-    # load dataset
-    train_set = datasets.CIFAR10(
-        args.dataset_path, train=True, transform=transform, download=True)
-    test_set = datasets.CIFAR10(
-        args.dataset_path, train=False, transform=transform, download=False)
+        # load dataset
+        train_set = datasets.MNIST(root, train=True, transform=transform, download=True)
+        test_set = datasets.MNIST(root, train=False, transform=transform, download=False)
+        # split train set into train-val set
+        # train_set, val_set = torch.utils.data.random_split(train_set, [50000, 10000])
+        # train_set = Subset(train_set, indices=np.random.permutation(len(train_set))[:5000])
+        val_set = test_set
 
-    # split train set into train-val set
-    train_set, val_set = torch.utils.data.random_split(train_set, [
-        45000, 5000])
+    elif dataset_type == 'cifar10':
+        mean = [0.49139968, 0.48215827, 0.44653124]
+        std = [0.24703233, 0.24348505, 0.26158768]
 
-    # generate data loader
-    train_loader = DataLoader(
-        train_set, batch_size=args.batch_size, shuffle=True)
+        transform = transforms.Compose([
+            transforms.RandomCrop(32, padding=4),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize(mean, std)
+        ])
 
+        test_transform = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize(mean, std)
+        ])
+
+        # load dataset
+        train_set = datasets.CIFAR10(root, train=True, transform=transform, download=True)
+        test_set = datasets.CIFAR10(root, train=False, transform=test_transform, download=False)
+        train_set = Subset(train_set, indices=np.random.permutation(len(train_set))[:4000])
+        val_set = test_set
+
+    elif dataset_type == 'cifar100':
+        mean = [0.5071, 0.4865, 0.4409]
+        std = [0.2673, 0.2564, 0.2762]
+
+        transform = transforms.Compose([
+            transforms.RandomCrop(32, padding=4),
+            transforms.RandomHorizontalFlip(),
+            transforms.RandomRotation(20),
+            transforms.ToTensor(),
+            transforms.Normalize(mean, std)
+        ])
+
+        test_transform = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize(mean, std)
+        ])
+
+        # load dataset
+        train_set = datasets.CIFAR100(root, train=True, transform=transform, download=True)
+        test_set = datasets.CIFAR100(root, train=False, transform=test_transform, download=False)
+        val_set = test_set
+
+    # generate DataLoader
+    train_loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=True)
     val_loader = DataLoader(val_set, batch_size=args.batch_size, shuffle=False)
-
-    test_loader = DataLoader(
-        test_set, batch_size=args.batch_size, shuffle=False)
+    test_loader = DataLoader(test_set, batch_size=args.batch_size, shuffle=False)
 
     return train_loader, val_loader, test_loader
 
 
 def train(model, train_loader, optimizer, epoch, device, train_loss_lst, train_acc_lst):
-    model.train()  # Set the module in training mode
+    model.train()
     correct = 0
     train_loss = 0
     for batch_idx, (inputs, labels) in enumerate(train_loader):
@@ -70,6 +109,7 @@ def train(model, train_loader, optimizer, epoch, device, train_loss_lst, train_a
         correct += pred.eq(labels.view_as(pred)).sum().item()
 
         criterion = nn.CrossEntropyLoss()
+
         loss = criterion(outputs, labels)
         optimizer.zero_grad()
         loss.backward()
@@ -99,7 +139,7 @@ def train(model, train_loader, optimizer, epoch, device, train_loss_lst, train_a
 
 
 def validate(model, val_loader, device, val_loss_lst, val_acc_lst):
-    model.eval()  # Set the module in evaluation mode
+    model.eval()
     val_loss = 0
     correct = 0
     # no need to calculate gradients
@@ -129,7 +169,7 @@ def validate(model, val_loader, device, val_loss_lst, val_acc_lst):
 
 
 def test(model, test_loader, device):
-    model.eval()  # Set the module in evaluation mode
+    model.eval()
     test_loss = 0
     correct = 0
     # no need to calculate gradients
@@ -153,47 +193,46 @@ def test(model, test_loader, device):
 
 
 if __name__ == "__main__":
-    torch.manual_seed(0)
+    torch.manual_seed(args.seed)
+    np.random.seed(args.seed)
+
     # create output folder
     now = time.strftime('%Y-%m-%d-%H-%M-%S', time.localtime())
-    output_path = os.path.join(args.log_dir, args.name + now)
+    output_path = os.path.join(args.log_dir, args.project_name + ' ' + now)
     os.makedirs(output_path)
 
-    train_loader, val_loader, test_loader = create_dataloader()  # get data loader
+    train_loader, val_loader, test_loader = create_dataloader(args.dataset, args.dataset_path)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    model = resnet18(num_classes=args.num_classes).to(device)
-    teacher_model = TeacherModel(model, beta=args.beta)
+    if args.dataset == 'mnist':
+        model = MNISTNet().to(device)
+    elif args.dataset == 'cifar10':
+        model = CIFAR10Net().to(device)
+        # model = CNN9Layer(num_classes=10, input_shape=3).to(device)
+    elif args.dataset == 'cifar100':
+        model = CNN9Layer(num_classes=100, input_shape=3).to(device)
 
-    optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9)
+    optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9, weight_decay=args.l2_reg)
 
     train_loss_lst, val_loss_lst = [], []
     train_acc_lst, val_acc_lst = [], []
 
     # main loop(train,val,test)
     for epoch in range(args.epochs):
-        train_loss_lst, train_acc_lst = train(model, train_loader, optimizer,
-                                              epoch, device, train_loss_lst, train_acc_lst)
-
-        teacher_model.update()  # update mean teacher model after student model backward params
-        teacher_model.apply_teacher()  # use mean teacher model before evaluating
-
-        val_loss_lst, val_acc_lst = validate(
-            model, val_loader, device, val_loss_lst, val_acc_lst)
-
-        teacher_model.restore_student()  # restore to student model after evaluating
+        train_loss_lst, train_acc_lst = train(model, train_loader, optimizer, epoch, device, train_loss_lst,
+                                              train_acc_lst)
+        val_loss_lst, val_acc_lst = validate(model, val_loader, device, val_loss_lst, val_acc_lst)
 
         # modify learning rate
-        if epoch in [40, 60, 80]:
+        if epoch in [40, 80]:
             args.lr *= 0.1
-            optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9)
+            optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9, weight_decay=args.l2_reg)
 
-    teacher_model.apply_teacher()
     test(model, test_loader, device)
 
     # plot loss and accuracy curve
-    fig = plt.figure('Loss and acc')
+    fig = plt.figure('Loss and acc', dpi=200)
     plt.plot(range(args.epochs), train_loss_lst, 'g', label='train loss')
     plt.plot(range(args.epochs), val_loss_lst, 'k', label='val loss')
     plt.plot(range(args.epochs), train_acc_lst, 'r', label='train acc')
@@ -207,4 +246,4 @@ if __name__ == "__main__":
     plt.close(fig)
 
     # save model
-    torch.save(model.state_dict(), os.path.join(output_path, args.name + ".pth"))
+    torch.save(model.state_dict(), os.path.join(output_path, args.project_name + ".pth"))

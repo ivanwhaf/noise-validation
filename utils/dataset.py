@@ -9,40 +9,74 @@ from torch.utils.data import DataLoader, Dataset
 from torchvision import datasets, transforms, utils
 
 
+# np.random.seed(0)
+
 class MNISTNoisy(Dataset):
-    def __init__(self, root, train, transform, download):
+    def __init__(self, root, train, transform, download, noise_type='symmetric', noise_rate=0.2):
         self.mnist = datasets.MNIST(root, train, transform, download=download)
-        self.num_noise = 0
+        self.noise_type = noise_type
+        self.noise_rate = noise_rate
+        self.clean_sample_idx = []
+        self.noisy_sample_idx = []
 
-    def uniform_mix(self, noise_rate, mixing_ratio, num_classes):
-        # symmetric noise
-        ntm = mixing_ratio * np.full((num_classes, num_classes), 1 / num_classes) + \
-              (1 - mixing_ratio) * np.eye(num_classes)
+        # add label noise
+        if self.noise_type == 'symmetric':
+            self.uniform(noise_rate, 10)
+        elif self.noise_type == 'asymmetric':
+            self.flip(noise_rate, 10)
 
-        num_noise = int(len(self.mnist) * noise_rate)
-        self.num_noise = num_noise
+    def uniform(self, noise_rate: float, num_classes: int):
+        """Add symmetric noise"""
 
-        indices = np.arange(len(self.mnist))
-        np.random.shuffle(indices)
+        # noise transition matrix
+        ntm = noise_rate * np.full((num_classes, num_classes), 1 / (num_classes - 1))
+        np.fill_diagonal(ntm, 1 - noise_rate)
 
-        for i in indices[:num_noise]:
-            self.mnist.targets[i] = np.random.choice(num_classes, p=ntm[self.mnist.targets[i]])
+        sample_indices = np.arange(len(self.mnist))
+        # np.random.shuffle(indices)
 
-    def flip(self, noise_rate, corruption_prob, num_classes):
-        # asymmetric noise
-        ntm = np.eye(num_classes) * (1 - corruption_prob)
-        row_indices = np.arange(num_classes)
-        for i in range(num_classes):
-            ntm[i][np.random.choice(row_indices[row_indices != i])] = corruption_prob
+        # generate noisy label by noise transition matrix
+        for i in sample_indices:
+            label = np.random.choice(num_classes, p=ntm[self.mnist.targets[i]])  # new label
+            if label != self.mnist.targets[i]:
+                self.noisy_sample_idx.append(i)
+            self.mnist.targets[i] = label
 
-        num_noise = int(len(self.mnist) * noise_rate)
-        self.num_noise = num_noise
+        self.clean_sample_idx = np.setdiff1d(sample_indices, self.noisy_sample_idx)
 
-        indices = np.arange(len(self.mnist))
-        np.random.shuffle(indices)
+        print('Noise type: Symmetric')
+        print('Noise rate:', noise_rate)
+        print('Noise transition matrix:', ntm)
+        print('Clean samples:', len(self.clean_sample_idx), 'Noisy samples:', len(self.noisy_sample_idx))
 
-        for i in indices[:num_noise]:
-            self.mnist.targets[i] = np.random.choice(num_classes, p=ntm[self.mnist.targets[i]])
+    def flip(self, noise_rate: float, num_classes: int):
+        """Add asymmetric noise"""
+
+        # noise transition matrix
+        ntm = np.eye(num_classes) * (1 - noise_rate)
+
+        d = {7: 1, 2: 7, 5: 6, 6: 5, 3: 8}  # 7->1, 2->7, 5->6, 6->5, 3->8
+        for raw_class, new_class in d.items():
+            ntm[raw_class][new_class] = noise_rate
+
+        for i in [0, 1, 4, 8, 9]:
+            ntm[i][i] = 1
+
+        sample_indices = np.arange(len(self.mnist))
+
+        # generate noisy label by noise transition matrix
+        for i in sample_indices:
+            label = np.random.choice(num_classes, p=ntm[self.mnist.targets[i]])
+            if label != self.mnist.targets[i]:
+                self.noisy_sample_idx.append(i)
+            self.mnist.targets[i] = label
+
+        self.clean_sample_idx = np.setdiff1d(sample_indices, self.noisy_sample_idx)
+
+        print('Noise type: Asymmetric')
+        print('Noise rate:', noise_rate)
+        print('Noise transition matrix:', ntm)
+        print('Clean samples:', len(self.clean_sample_idx), 'Noisy samples:', len(self.noisy_sample_idx))
 
     def __len__(self):
         return self.mnist.__len__()
@@ -52,39 +86,69 @@ class MNISTNoisy(Dataset):
 
 
 class CIFAR10Noisy(Dataset):
-    def __init__(self, root, train, transform, download):
+    def __init__(self, root, train, transform, download, noise_type='symmetric', noise_rate=0.2):
         self.cifar10 = datasets.CIFAR10(root, train, transform, download=download)
-        self.num_noise = 0
+        self.noise_type = noise_type
+        self.noise_rate = noise_rate
+        self.noisy_sample_idx = []
+        self.clean_sample_idx = []
+        # add label noise
+        if self.noise_type == 'symmetric':
+            self.uniform(noise_rate, 10)
+        elif self.noise_type == 'asymmetric':
+            self.flip(noise_rate, 10)
 
-    def uniform_mix(self, noise_rate, mixing_ratio, num_classes):
-        # symmetric noise
-        ntm = mixing_ratio * np.full((num_classes, num_classes), 1 / num_classes) + \
-              (1 - mixing_ratio) * np.eye(num_classes)
+    def uniform(self, noise_rate: float, num_classes: int):
+        """Add symmetric noise"""
 
-        num_noise = int(len(self.cifar10) * noise_rate)
-        self.num_noise = num_noise
+        # noise transition matrix
+        ntm = noise_rate * np.full((num_classes, num_classes), 1 / (num_classes - 1))
+        np.fill_diagonal(ntm, 1 - noise_rate)
 
-        indices = np.arange(len(self.cifar10))
-        np.random.shuffle(indices)
+        sample_indices = np.arange(len(self.cifar10))
 
-        for i in indices[:num_noise]:
-            self.cifar10.targets[i] = np.random.choice(num_classes, p=ntm[self.cifar10.targets[i]])
+        # generate noisy label by noise transition matrix
+        for i in sample_indices:
+            label = np.random.choice(num_classes, p=ntm[self.cifar10.targets[i]])
+            if label != self.cifar10.targets[i]:
+                self.noisy_sample_idx.append(i)
+            self.cifar10.targets[i] = label
 
-    def flip(self, noise_rate, corruption_prob, num_classes):
-        # asymmetric noise
-        ntm = np.eye(num_classes) * (1 - corruption_prob)
-        row_indices = np.arange(num_classes)
-        for i in range(num_classes):
-            ntm[i][np.random.choice(row_indices[row_indices != i])] = corruption_prob
+        self.clean_sample_idx = np.setdiff1d(sample_indices, self.noisy_sample_idx)
 
-        num_noise = int(len(self.cifar10) * noise_rate)
-        self.num_noise = num_noise
+        print('Noise type: Symmetric')
+        print('Noise rate:', noise_rate)
+        print('Noise transition matrix:', ntm)
+        print('Clean samples:', len(self.clean_sample_idx), 'Noisy samples:', len(self.noisy_sample_idx))
 
-        indices = np.arange(len(self.cifar10))
-        np.random.shuffle(indices)
+    def flip(self, noise_rate: float, num_classes: int):
+        """Add asymmetric noise"""
 
-        for i in indices[:num_noise]:
-            self.cifar10.targets[i] = np.random.choice(num_classes, p=ntm[self.cifar10.targets[i]])
+        # noise transition matrix
+        ntm = np.eye(num_classes) * (1 - noise_rate)
+
+        d = {9: 1, 2: 0, 3: 5, 5: 3, 4: 7}  # truck->automobile, bird->airplane, cat->dog, dog->cat, deer->horse
+        for raw_class, new_class in d.items():
+            ntm[raw_class][new_class] = noise_rate
+
+        for i in [0, 1, 6, 7, 8]:
+            ntm[i][i] = 1
+
+        sample_indices = np.arange(len(self.cifar10))
+
+        # generate noisy label by noise transition matrix
+        for i in sample_indices:
+            label = np.random.choice(num_classes, p=ntm[self.cifar10.targets[i]])
+            if label != self.cifar10.targets[i]:
+                self.noisy_sample_idx.append(i)
+            self.cifar10.targets[i] = label
+
+        self.clean_sample_idx = np.setdiff1d(sample_indices, self.noisy_sample_idx)
+
+        print('Noise type: Asymmetric')
+        print('Noise rate:', noise_rate)
+        print('Noise transition matrix:', ntm)
+        print('Clean samples:', len(self.clean_sample_idx), 'Noisy samples:', len(self.noisy_sample_idx))
 
     def __len__(self):
         return self.cifar10.__len__()
@@ -93,16 +157,84 @@ class CIFAR10Noisy(Dataset):
         return self.cifar10.__getitem__(index)
 
 
+class CIFAR100Noisy(Dataset):
+    def __init__(self, root, train, transform, download, noise_type='symmetric', noise_rate=0.2):
+        self.cifar100 = datasets.CIFAR100(root, train, transform, download=download)
+        self.noise_type = noise_type
+        self.noise_rate = noise_rate
+        self.noisy_sample_idx = []
+        self.clean_sample_idx = []
+        # add label noise
+        if self.noise_type == 'symmetric':
+            self.uniform(noise_rate, 100)
+        elif self.noise_type == 'asymmetric':
+            self.flip(noise_rate, 100)
+
+    def uniform(self, noise_rate: float, num_classes: int):
+        """Add symmetric noise"""
+
+        # noise transition matrix
+        ntm = noise_rate * np.full((num_classes, num_classes), 1 / (num_classes - 1))
+        np.fill_diagonal(ntm, 1 - noise_rate)
+
+        sample_indices = np.arange(len(self.cifar100))
+
+        # generate noisy label by noise transition matrix
+        for i in sample_indices:
+            label = np.random.choice(num_classes, p=ntm[self.cifar100.targets[i]])
+            if label != self.cifar100.targets[i]:
+                self.noisy_sample_idx.append(i)
+            self.cifar100.targets[i] = label
+
+        self.clean_sample_idx = np.setdiff1d(sample_indices, self.noisy_sample_idx)
+
+        print('Noise type: Symmetric')
+        print('Noise rate:', noise_rate)
+        print('Noise transition matrix:', ntm)
+        print('Clean samples:', len(self.clean_sample_idx), 'Noisy samples:', len(self.noisy_sample_idx))
+
+    def flip(self, noise_rate: float, num_classes: int):
+        """Add asymmetric noise"""
+
+        ntm = np.eye(num_classes) * (1 - noise_rate)
+
+        # row_indices = np.arange(num_classes)
+        # for i in range(num_classes):
+        #     ntm[i][np.random.choice(row_indices[row_indices != i])] = noise_rate
+
+        for i in range(num_classes):
+            ntm[i][i + 1 if i + 1 < num_classes else 0] = noise_rate
+
+        sample_indices = np.arange(len(self.cifar100))
+
+        # generate noisy label by noise transition matrix
+        for i in sample_indices:
+            label = np.random.choice(num_classes, p=ntm[self.cifar100.targets[i]])
+            if label != self.cifar100.targets[i]:
+                self.noisy_sample_idx.append(i)
+            self.cifar100.targets[i] = label
+
+        self.clean_sample_idx = np.setdiff1d(sample_indices, self.noisy_sample_idx)
+
+        print('Noise type: Asymmetric')
+        print('Noise rate:', noise_rate)
+        print('Noise transition matrix:', ntm)
+        print('Clean samples:', len(self.clean_sample_idx), 'Noisy samples:', len(self.noisy_sample_idx))
+
+    def __len__(self):
+        return self.cifar100.__len__()
+
+    def __getitem__(self, index):
+        return self.cifar100.__getitem__(index)
+
+
 if __name__ == '__main__':
     transform = transforms.Compose([
         transforms.ToTensor(),
         transforms.Normalize(mean=(0.1307,), std=(0.3081,))
     ])
 
-    mnist_noisy = MNISTNoisy(transform=transform, root='../dataset', train=True, download=True)
-    mnist_noisy.uniform_mix(noise_rate=1.0, mixing_ratio=0.5, num_classes=10)
-    # mnist_noisy.flip(noise_rate=1.0, corruption_prob=0.5, num_classes=10)
-
+    mnist_noisy = MNISTNoisy(transform=transform, root='../dataset', train=True, download=True, noise_rate=0.5)
     noisy_loader = DataLoader(mnist_noisy, batch_size=64, shuffle=False)
 
     # save noisy figure

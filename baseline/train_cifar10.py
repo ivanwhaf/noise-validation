@@ -7,6 +7,7 @@ import os
 import time
 
 import matplotlib.pyplot as plt
+import numpy as np
 import torch
 import torch.optim as optim
 from torch.utils.data import DataLoader
@@ -21,6 +22,7 @@ parser.add_argument('-batch_size', type=int, help='batch size', default=128)
 parser.add_argument('-lr', type=float, help='learning rate', default=0.01)
 parser.add_argument('-epochs', type=int, help='training epochs', default=100)
 parser.add_argument('-num_classes', type=int, help='number of classes', default=10)
+parser.add_argument('-noise_rate', type=float, help='noise rate', default=0.2)
 parser.add_argument('-log_dir', type=str, help='log dir', default='output')
 args = parser.parse_args()
 
@@ -146,20 +148,22 @@ def test(model, test_loader, device):
 
 if __name__ == "__main__":
     torch.manual_seed(0)
+    np.random.seed(0)
     # create output folder
     now = time.strftime('%Y-%m-%d-%H-%M-%S', time.localtime())
-    output_path = os.path.join(args.log_dir, args.name + now)
+    output_path = os.path.join(args.log_dir, args.name + ' ' + now)
     os.makedirs(output_path)
 
     train_loader, val_loader, test_loader = create_dataloader()  # get data loader
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    model = CIFAR10Net().to(device)
+    # model = CIFAR10Net().to(device)
+    model = CIFAR102ConvNet().to(device)
     # model = CIFAR10LeNet().to(device)
     # model = resnet18(num_classes=args.num_classes).to(device)
 
-    optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9)
+    optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9, weight_decay=0.0004)
 
     # train, validate and test
     train_loss_lst, val_loss_lst = [], []
@@ -173,14 +177,14 @@ if __name__ == "__main__":
             model, val_loader, device, val_loss_lst, val_acc_lst)
 
         # modify learning rate
-        if epoch in [40, 60, 80]:
+        if epoch in [40, 80]:
             args.lr *= 0.1
             optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9)
 
     test(model, test_loader, device)
 
     # plot loss and accuracy curve
-    fig = plt.figure('Loss and acc')
+    fig = plt.figure('Loss and acc', dpi=200)
     plt.plot(range(args.epochs), train_loss_lst, 'g', label='train loss')
     plt.plot(range(args.epochs), val_loss_lst, 'k', label='val loss')
     plt.plot(range(args.epochs), train_acc_lst, 'r', label='train acc')

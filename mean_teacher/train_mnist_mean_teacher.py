@@ -176,8 +176,7 @@ if __name__ == "__main__":
         teacher_model.update()  # update mean teacher model after student model backward params
         teacher_model.apply_teacher()  # use mean teacher model before evaluating
 
-        val_loss_lst, val_acc_lst = validate(
-            model, val_loader, device, val_loss_lst, val_acc_lst)
+        val_loss_lst, val_acc_lst = validate(model, val_loader, device, val_loss_lst, val_acc_lst)
 
         teacher_model.restore_student()  # restore to student model after evaluating
 

@@ -1,12 +1,12 @@
 # noise-validation
 
-Some noisy-label papers and training tricks implementation.
+Some **Noisy-label**, **Robust learning** and **Training tricks** implementation.
 
 ## Algorithms
 
 ### 1.Baseline
 
-**MNIST** and **CIFAR10** Dataset baseline using conv net
+*MNIST* and *CIFAR10* dataset baseline without label noise.
 
 ### 2.QBC-Loss
 
@@ -43,7 +43,7 @@ Paper: [https://arxiv.org/pdf/1706.02613.pdf](https://arxiv.org/pdf/1706.02613v2
 Title: *mixup: BEYOND EMPIRICAL RISK MINIMIZATION*  
 Paper: [https://arxiv.org/pdf/1710.09412.pdf](https://arxiv.org/pdf/1710.09412v2.pdf)
 
-### 9.MentorNet (Not done)
+### 9.MentorNet (Haven't done)
 
 Title: *MentorNet: Learning Data-Driven Curriculum for Very Deep Neural Networks on Corrupted Labels*  
 Paper: [https://arxiv.org/pdf/1712.05055.pdf](https://arxiv.org/pdf/1712.05055v2.pdf)
@@ -53,34 +53,55 @@ Paper: [https://arxiv.org/pdf/1712.05055.pdf](https://arxiv.org/pdf/1712.05055v2
 Title: *Co-teaching: Robust Training of Deep Neural Networks with Extremely Noisy Labels*  
 Paper: [https://arxiv.org/pdf/1804.06872.pdf](https://arxiv.org/pdf/1804.06872v3.pdf)
 
-### 11.Forgetting
+### 11.Truncated Loss(L<sub>q</sub> Loss, GCE)
+
+Title: *Generalized Cross Entropy Loss for Training Deep Neural Networks with Noisy Labels*  
+Paper: [https://arxiv.org/pdf/1805.07836v4.pdf](https://arxiv.org/pdf/1805.07836v4.pdf)
+
+### 12.Forgetting
 
 Title: *AN EMPIRICAL STUDY OF EXAMPLE FORGETTING DURING DEEP NEURAL NETWORK LEARNING*  
 Paper: [https://arxiv.org/pdf/1812.05159.pdf](https://arxiv.org/pdf/1812.05159v3.pdf)
 
-### 12.Meta-Weight-Net (Not done)
+### 13.Meta-Weight-Net (Haven't done)
 
 Title: *Meta-Weight-Net: Learning an Explicit Mapping For Sample Weighting*  
 Paper: [https://arxiv.org/pdf/1902.07379.pdf](https://arxiv.org/pdf/1902.07379v6.pdf)
 
-### 13.SCE
+### 14.MixMatch
+
+Title: *MixMatch: A Holistic Approach to Semi-Supervised Learning*  
+Paper: [https://arxiv.org/pdf/1905.02249v1.pdf](https://arxiv.org/pdf/1905.02249v1.pdf)
+
+### 15.SCE
 
 Title: *Symmetric Cross Entropy for Robust Learning with Noisy Labels*  
 Paper: [https://arxiv.org/pdf/1908.06112.pdf](https://arxiv.org/pdf/1908.06112v1.pdf)
 
-### 14.NLNL
+### 16.NLNL
 
 Title: *NLNL: Negative Learning for Noisy Labels*  
 Paper: [https://arxiv.org/pdf/1908.07387.pdf](https://arxiv.org/pdf/1908.07387v1.pdf)
 
-### 15.SELF
+### 17.SELF
 
 Title: *SELF: LEARNING TO FILTER NOISY LABELS WITH SELF-ENSEMBLING*  
 Paper: [https://arxiv.org/pdf/1910.01842.pdf](https://arxiv.org/pdf/1910.01842v1.pdf)
 
-### 16.Flooding
+### 18.DivideMix (Haven't done)
+
+Title: *DIVIDEMIX: LEARNING WITH NOISY LABELS AS SEMI-SUPERVISED LEARNING*  
+Paper: [https://arxiv.org/pdf/2002.07494v1.pdf](https://arxiv.org/pdf/2002.07494v1.pdf)
+
+### 19.Flooding
 
 Title: *Do We Need Zero Training Loss After Achieving Zero Training Error?*  
 Paper: [https://arxiv.org/pdf/2002.08709.pdf](https://arxiv.org/pdf/2002.08709v1.pdf)
 
-### 17.Label Smoothing
+### 20.APL
+
+Title *Normalized Loss Functions for Deep Learning with Noisy Labels*  
+Paper: [https://arxiv.org/pdf/2006.13554v1.pdf](https://arxiv.org/pdf/2006.13554v1.pdf)
+
+### Label Smoothing
+### CE-MAE

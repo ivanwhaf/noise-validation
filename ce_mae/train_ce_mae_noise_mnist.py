@@ -1,28 +1,27 @@
 """
-2021/3/11
-train cifar10 mixup
+2021/5/8
+train mnist baseline noisy
 """
 import argparse
 import os
 import time
 
 import matplotlib.pyplot as plt
-import numpy as np
 import torch
+import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms, utils
-from torchvision.models import resnet18
 
 from models.models import *
+from utils.dataset import MNISTNoisy
 
 parser = argparse.ArgumentParser()
-parser.add_argument('-name', type=str, help='project name', default='cifar10_mixup')
+parser.add_argument('-name', type=str, help='project name', default='mnist_ce_mae_noise0.6')
 parser.add_argument('-dataset_path', type=str, help='relative path of dataset', default='../dataset')
 parser.add_argument('-batch_size', type=int, help='batch size', default=64)
 parser.add_argument('-lr', type=float, help='learning rate', default=0.01)
 parser.add_argument('-epochs', type=int, help='training epochs', default=100)
-parser.add_argument('-alpha', type=float, help='beta distribution param alpha', default=1)
 parser.add_argument('-num_classes', type=int, help='number of classes', default=10)
 parser.add_argument('-log_dir', type=str, help='log dir', default='output')
 args = parser.parse_args()
@@ -30,30 +29,29 @@ args = parser.parse_args()
 
 def create_dataloader():
     transform = transforms.Compose([
-        transforms.RandomHorizontalFlip(),
-        # transforms.RandomGrayscale(),
         transforms.ToTensor(),
-        # transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+        transforms.Normalize(mean=(0.1307,), std=(0.3081,))
     ])
 
-    # load dataset
-    train_set = datasets.CIFAR10(
-        args.dataset_path, train=True, transform=transform, download=True)
-    test_set = datasets.CIFAR10(
-        args.dataset_path, train=False, transform=transform, download=False)
+    # load noisy dataset
+    mnist_noisy = MNISTNoisy(transform=transform, root=args.dataset_path, train=True, download=True)
+    mnist_noisy.uniform_mix(noise_rate=1.0, mixing_ratio=0.6, num_classes=10)
+    # mnist_noisy.flip(noise_rate=1.0, corruption_prob=0.5, num_classes=10)
+    train_set = mnist_noisy
+    test_set = datasets.MNIST(args.dataset_path, train=False, transform=transform, download=False)
+    val_set = test_set
 
-    # split train set into train-val set
-    train_set, val_set = torch.utils.data.random_split(train_set, [
-        45000, 5000])
+    # load clean dataset
+    # train_set = datasets.MNIST(args.dataset_path, train=True, transform=transform, download=True)
+    # test_set = datasets.MNIST(args.dataset_path, train=False, transform=transform, download=False)
+    # val_set = test_set
 
-    # generate data loader
-    train_loader = DataLoader(
-        train_set, batch_size=args.batch_size, shuffle=True)
+    # generate DataLoader
+    train_loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=True)
 
     val_loader = DataLoader(val_set, batch_size=args.batch_size, shuffle=False)
 
-    test_loader = DataLoader(
-        test_set, batch_size=args.batch_size, shuffle=False)
+    test_loader = DataLoader(test_set, batch_size=args.batch_size, shuffle=False)
 
     return train_loader, val_loader, test_loader
 
@@ -69,16 +67,26 @@ def train(model, train_loader, optimizer, epoch, device, train_loss_lst, train_a
         pred = outputs.max(1, keepdim=True)[1]
         correct += pred.eq(labels.view_as(pred)).sum().item()
 
-        # calculate mixup loss
-        criterion = nn.CrossEntropyLoss()
-        lam = np.random.beta(args.alpha, args.alpha)
-        index = torch.randperm(inputs.size(0)).cuda()
-        inputs = lam * inputs + (1 - lam) * inputs[index, :]
-        labels_a, labels_b = labels, labels[index]
-        outputs = model(inputs)
-        loss = lam * criterion(outputs, labels_a) + (1 - lam) * criterion(outputs, labels_b)
+        if epoch <= 15:
+            criterion = nn.CrossEntropyLoss()
+            # outputs = F.softmax(outputs)
+            # criterion = nn.L1Loss()
+            # labels = F.one_hot(labels, args.num_classes).to(device)
+        else:
+            # criterion = nn.CrossEntropyLoss()
 
-        # backward
+            # fix conv layer parameter
+            i = 0
+            for name, p in model.named_parameters():
+                if i < 6:
+                    p.requires_grad = False
+                i += 1
+
+            outputs = F.softmax(outputs)
+            criterion = nn.L1Loss()
+            labels = F.one_hot(labels, args.num_classes).to(device)
+
+        loss = criterion(outputs, labels)
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
@@ -116,13 +124,17 @@ def validate(model, val_loader, device, val_loss_lst, val_acc_lst):
             data, target = data.to(device), target.to(device)
             output = model(data)
 
-            criterion = nn.CrossEntropyLoss()
-            val_loss += criterion(output, target).item()
-            # val_loss += F.nll_loss(output, target, reduction='sum').item()
-
             # find index of max prob
             pred = output.max(1, keepdim=True)[1]
             correct += pred.eq(target.view_as(pred)).sum().item()
+
+            # criterion = nn.CrossEntropyLoss()
+            output = F.softmax(output)
+            criterion = nn.L1Loss()
+            target = F.one_hot(target, args.num_classes).to(device)
+
+            val_loss += criterion(output, target).item()
+            # val_loss += F.nll_loss(output, target, reduction='sum').item()
 
     # print val loss and accuracy
     val_loss /= len(val_loader)
@@ -146,12 +158,16 @@ def test(model, test_loader, device):
             data, target = data.to(device), target.to(device)
             output = model(data)
 
-            criterion = nn.CrossEntropyLoss()
-            test_loss += criterion(output, target).item()
-
             # find index of max prob
             pred = output.max(1, keepdim=True)[1]
             correct += pred.eq(target.view_as(pred)).sum().item()
+
+            criterion = nn.CrossEntropyLoss()
+            # output = F.softmax(output)
+            # criterion = nn.L1Loss()
+            # target = F.one_hot(target, args.num_classes).to(device)
+
+            test_loss += criterion(output, target).item()
 
     # print test loss and accuracy
     test_loss /= len(test_loader.dataset)
@@ -171,7 +187,7 @@ if __name__ == "__main__":
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    model = resnet18(num_classes=args.num_classes).to(device)
+    model = MNISTNet().to(device)
 
     optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9)
 
