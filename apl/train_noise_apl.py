@@ -15,7 +15,7 @@ from torch.utils.data import DataLoader
 from torchvision import datasets, transforms, utils
 
 from loss import NCEandRCE
-from models import MNISTNet, CNN9Layer
+from models import MNISTNet, CNN9Layer, CIFAR10Net
 from utils.dataset import MNISTNoisy, CIFAR10Noisy, CIFAR100Noisy
 
 parser = argparse.ArgumentParser()
@@ -230,7 +230,10 @@ if __name__ == "__main__":
     if args.dataset == 'mnist':
         model = MNISTNet().to(device)
     elif args.dataset == 'cifar10':
-        model = CNN9Layer(num_classes=args.num_classes, input_shape=1).to(device)
+        model = CIFAR10Net().to(device)
+        # model = CNN9Layer(num_classes=10, input_shape=3).to(device)
+    elif args.dataset == 'cifar100':
+        model = CNN9Layer(num_classes=100, input_shape=3).to(device)
 
     optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9, weight_decay=args.l2_reg)
 

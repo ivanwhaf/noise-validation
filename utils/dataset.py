@@ -46,7 +46,7 @@ class MNISTNoisy(Dataset):
 
         print('Noise type: Symmetric')
         print('Noise rate:', noise_rate)
-        print('Noise transition matrix:', ntm)
+        print('Noise transition matrix:\n', ntm)
         print('Clean samples:', len(self.clean_sample_idx), 'Noisy samples:', len(self.noisy_sample_idx))
 
     def flip(self, noise_rate: float, num_classes: int):
@@ -75,7 +75,7 @@ class MNISTNoisy(Dataset):
 
         print('Noise type: Asymmetric')
         print('Noise rate:', noise_rate)
-        print('Noise transition matrix:', ntm)
+        print('Noise transition matrix:\n', ntm)
         print('Clean samples:', len(self.clean_sample_idx), 'Noisy samples:', len(self.noisy_sample_idx))
 
     def __len__(self):
@@ -118,7 +118,7 @@ class CIFAR10Noisy(Dataset):
 
         print('Noise type: Symmetric')
         print('Noise rate:', noise_rate)
-        print('Noise transition matrix:', ntm)
+        print('Noise transition matrix:\n', ntm)
         print('Clean samples:', len(self.clean_sample_idx), 'Noisy samples:', len(self.noisy_sample_idx))
 
     def flip(self, noise_rate: float, num_classes: int):
@@ -147,7 +147,7 @@ class CIFAR10Noisy(Dataset):
 
         print('Noise type: Asymmetric')
         print('Noise rate:', noise_rate)
-        print('Noise transition matrix:', ntm)
+        print('Noise transition matrix:\n', ntm)
         print('Clean samples:', len(self.clean_sample_idx), 'Noisy samples:', len(self.noisy_sample_idx))
 
     def __len__(self):
@@ -190,7 +190,7 @@ class CIFAR100Noisy(Dataset):
 
         print('Noise type: Symmetric')
         print('Noise rate:', noise_rate)
-        print('Noise transition matrix:', ntm)
+        print('Noise transition matrix:\n', ntm)
         print('Clean samples:', len(self.clean_sample_idx), 'Noisy samples:', len(self.noisy_sample_idx))
 
     def flip(self, noise_rate: float, num_classes: int):
@@ -218,7 +218,7 @@ class CIFAR100Noisy(Dataset):
 
         print('Noise type: Asymmetric')
         print('Noise rate:', noise_rate)
-        print('Noise transition matrix:', ntm)
+        print('Noise transition matrix:\n', ntm)
         print('Clean samples:', len(self.clean_sample_idx), 'Noisy samples:', len(self.noisy_sample_idx))
 
     def __len__(self):

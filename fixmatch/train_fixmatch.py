@@ -1,6 +1,6 @@
 """
-2021/9/30
-train mixmatch
+2021/10/24
+train fixmatch
 """
 import argparse
 import os
@@ -16,9 +16,10 @@ from torch.utils.data import Subset, DataLoader
 from torchvision import datasets, transforms, utils
 
 from models import MNISTNet, CNN9Layer, CIFAR10Net
+from randaugment import RandAugmentMC
 
 parser = argparse.ArgumentParser()
-parser.add_argument('-project_name', type=str, help='project name', default='mixmatch')
+parser.add_argument('-project_name', type=str, help='project name', default='fixmatch')
 parser.add_argument('-dataset_path', type=str, help='relative path of dataset', default='../dataset')
 parser.add_argument('-dataset', type=str, help='dataset type', default='cifar10')
 parser.add_argument('-num_classes', type=int, help='number of classes', default=10)
@@ -69,14 +70,24 @@ class RandomPadAndCrop(object):
         return x
 
 
-class TransformTwice:
-    def __init__(self, transform):
-        self.transform = transform
+class TransformFixMatch(object):
+    def __init__(self, mean, std):
+        self.weak_transform = transforms.Compose([
+            transforms.RandomHorizontalFlip(),
+            transforms.RandomCrop(size=32, padding=int(32 * 0.125), padding_mode='reflect'),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=mean, std=std)
+        ])
+        self.strong_transform = transforms.Compose([
+            transforms.RandomHorizontalFlip(),
+            transforms.RandomCrop(size=32, padding=int(32 * 0.125), padding_mode='reflect'),
+            RandAugmentMC(n=2, m=10),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=mean, std=std)
+        ])
 
-    def __call__(self, inp):
-        out1 = self.transform(inp)
-        out2 = self.transform(inp)
-        return out1, out2
+    def __call__(self, x):
+        return self.weak_transform(x), self.strong_transform(x)
 
 
 def linear_rampup(current, rampup_length=args.epochs):
@@ -97,9 +108,11 @@ class SemiLoss(object):
 
 def create_dataloader(dataset_type, root):
     if dataset_type == 'mnist':
+        mean = (0.1307,)
+        std = (0.3081,)
         transform = transforms.Compose([
             transforms.ToTensor(),
-            transforms.Normalize(mean=(0.1307,), std=(0.3081,))
+            transforms.Normalize(mean=mean, std=std)
         ])
 
         # load dataset
@@ -110,7 +123,7 @@ def create_dataloader(dataset_type, root):
         indices = np.arange(len(train_set))
         np.random.shuffle(indices)
         labeled_set = Subset(train_set, indices=indices[:args.num_labeled])
-        train_set = datasets.MNIST(root, train=True, transform=TransformTwice(transform), download=False)
+        train_set = datasets.MNIST(root, train=True, transform=TransformFixMatch(mean, std), download=False)
         unlabeled_set = Subset(train_set, indices=indices[:args.num_unlabeled])
 
     elif dataset_type == 'cifar10':
@@ -135,7 +148,7 @@ def create_dataloader(dataset_type, root):
         val_set = test_set
 
         labeled_set = Subset(train_set, indices=np.random.permutation(len(train_set))[:args.num_labeled])
-        train_set = datasets.CIFAR10(root, train=True, transform=TransformTwice(transform), download=False)
+        train_set = datasets.CIFAR10(root, train=True, transform=TransformFixMatch(mean, std), download=False)
         unlabeled_set = Subset(train_set, indices=np.random.permutation(len(train_set))[:args.num_unlabeled])
 
     elif dataset_type == 'cifar100':
@@ -161,7 +174,7 @@ def create_dataloader(dataset_type, root):
         indices = np.arange(len(train_set))
         np.random.shuffle(indices)
         labeled_set = Subset(train_set, indices=np.random.permutation(len(train_set))[:args.num_labeled])
-        train_set = datasets.MNIST(root, train=True, transform=TransformTwice(transform), download=False)
+        train_set = datasets.MNIST(root, train=True, transform=TransformFixMatch(mean, std), download=False)
         unlabeled_set = Subset(train_set, indices=np.random.permutation(len(train_set))[:args.num_unlabeled])
 
     # generate DataLoader
@@ -184,12 +197,14 @@ def train(model, labeled_loader, unlabeled_loader, optimizer, epoch, device, tra
     unlabeled_iter = iter(unlabeled_loader)
     for batch_idx, (inputs_x, labels_x) in enumerate(labeled_loader):
         try:
-            (inputs_u1, inputs_u2), _ = next(unlabeled_iter)
+            (inputs_u_w, inputs_u_s), _ = next(unlabeled_iter)
         except Exception as e:
             unlabeled_iter = iter(unlabeled_loader)
-            (inputs_u1, inputs_u2), _ = next(unlabeled_iter)
+            (inputs_u_w, inputs_u_s), _ = next(unlabeled_iter)
 
-        inputs_u1, inputs_u2 = inputs_u1.to(device), inputs_u2.to(device)
+        loss_s = F.cross_entropy(inputs_x, labels_x)
+
+        inputs_u_w, inputs_u_s = inputs_u_w.to(device), inputs_u_s.to(device)
 
         # Transform label to one-hot
         # targets_x = torch.zeros(inputs_x.size(0), args.num_classes).scatter_(1, labels_x.view(-1, 1).long(), 1)
@@ -203,37 +218,37 @@ def train(model, labeled_loader, unlabeled_loader, optimizer, epoch, device, tra
             correct += pred.eq(labels_x.view_as(pred)).sum().item()
 
         # compute guessed labels of unlabeled samples
-        with torch.no_grad():
-            outputs_u1 = model(inputs_u1)
-            outputs_u2 = model(inputs_u2)
-            p = (torch.softmax(outputs_u1, dim=1) + torch.softmax(outputs_u2, dim=1)) / 2
-            pt = p ** (1 / args.T)
-            targets_u = pt / pt.sum(dim=1, keepdim=True)
-            targets_u = targets_u.detach()
+        # with torch.no_grad():
+        #     outputs_u1 = model(inputs_u1)
+        #     outputs_u2 = model(inputs_u2)
+        #     p = (torch.softmax(outputs_u1, dim=1) + torch.softmax(outputs_u2, dim=1)) / 2
+        #     pt = p ** (1 / args.T)
+        #     targets_u = pt / pt.sum(dim=1, keepdim=True)
+        #     targets_u = targets_u.detach()
 
-        # MixUp(X,W) + MixUp(U,W)
-        inputs_w = torch.cat([inputs_x, inputs_u1, inputs_u2], dim=0)  # W
-        targets_w = torch.cat([targets_x, targets_u, targets_u], dim=0)
-        inputs_u = torch.cat([inputs_u1, inputs_u2], dim=0)  # U
-        targets_u = torch.cat([targets_u, targets_u], dim=0)
-
-        # ----------------------------MixUp(X,W)----------------------------------
-        indices = torch.randperm(len(inputs_w))[:len(inputs_x)]
-        lam = np.random.beta(args.alpha, args.alpha)
-        inputs_x = lam * inputs_x + (1 - lam) * inputs_w[indices]
-        targets_x = lam * targets_x + (1 - lam) * targets_w[indices]
-        outputs_x = model(inputs_x)
-
-        # ----------------------------MixUp(U,W)---------------------------------
-        indices = torch.randperm(len(inputs_w))[:len(inputs_u)]
-        inputs_u = lam * inputs_u + (1 - lam) * inputs_w[indices]
-        targets_u = lam * targets_u + (1 - lam) * targets_w[indices]
-        outputs_u = model(inputs_u)
-
-        # MixMatch loss
-        criterion = SemiLoss()
-        loss_x, loss_u, lam_u = criterion(outputs_x, targets_x, outputs_u, targets_u, epoch)
-        loss = loss_x + lam_u * loss_u
+        # # MixUp(X,W) + MixUp(U,W)
+        # inputs_w = torch.cat([inputs_x, inputs_u1, inputs_u2], dim=0)  # W
+        # targets_w = torch.cat([targets_x, targets_u, targets_u], dim=0)
+        # inputs_u = torch.cat([inputs_u1, inputs_u2], dim=0)  # U
+        # targets_u = torch.cat([targets_u, targets_u], dim=0)
+        #
+        # # ----------------------------MixUp(X,W)----------------------------------
+        # indices = torch.randperm(len(inputs_w))[:len(inputs_x)]
+        # lam = np.random.beta(args.alpha, args.alpha)
+        # inputs_x = lam * inputs_x + (1 - lam) * inputs_w[indices]
+        # targets_x = lam * targets_x + (1 - lam) * targets_w[indices]
+        # outputs_x = model(inputs_x)
+        #
+        # # ----------------------------MixUp(U,W)---------------------------------
+        # indices = torch.randperm(len(inputs_w))[:len(inputs_u)]
+        # inputs_u = lam * inputs_u + (1 - lam) * inputs_w[indices]
+        # targets_u = lam * targets_u + (1 - lam) * targets_w[indices]
+        # outputs_u = model(inputs_u)
+        #
+        # # MixMatch loss
+        # criterion = SemiLoss()
+        # loss_x, loss_u, lam_u = criterion(outputs_x, targets_x, outputs_u, targets_u, epoch)
+        # loss = loss_x + lam_u * loss_u
 
         optimizer.zero_grad()
         loss.backward()

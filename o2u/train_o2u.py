@@ -15,10 +15,12 @@ from torch.utils.data import DataLoader, Subset
 from torchvision import datasets, transforms, utils
 
 from models.models import *
+from utils.dataset import CIFAR100Noisy, CIFAR10Noisy, MNISTNoisy
 
 parser = argparse.ArgumentParser()
-parser.add_argument('-name', type=str, help='project name', default='mnist_o2u')
+parser.add_argument('-project_name', type=str, help='project name', default='o2u_mnist')
 parser.add_argument('-dataset_path', type=str, help='relative path of dataset', default='../dataset')
+
 parser.add_argument('-pretrain_lr', type=float, help='pretrain learning rate', default=0.001)
 parser.add_argument('-pretrain_batch_size', type=int, help='pretrain batch size', default=128)
 parser.add_argument('-pretrain_epochs', type=int, help='pretrain epochs', default=60)
@@ -33,30 +35,74 @@ parser.add_argument('-log_dir', type=str, help='log dir', default='output')
 args = parser.parse_args()
 
 
-def create_dataloader(batch_size):
-    transform = transforms.Compose([
-        transforms.ToTensor(),
-    ])
+def create_dataloader(dataset_type, root, noise_type, noise_rate):
+    if dataset_type == 'mnist':
+        transform = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize(mean=(0.1307,), std=(0.3081,))
+        ])
 
-    train_set = datasets.MNIST(
-        args.dataset_path, train=True, transform=transform, download=True)
-    test_set = datasets.MNIST(
-        args.dataset_path, train=False, transform=transform, download=False)
+        test_transform = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize(mean=(0.1307,), std=(0.3081,))
+        ])
 
-    # split trainset into train-val set
-    train_set, val_set = torch.utils.data.random_split(train_set, [
-        50000, 10000])
+        # load noisy dataset
+        train_set = MNISTNoisy(root, train=True, transform=transform, download=True, noise_type=noise_type,
+                               noise_rate=noise_rate)
+        test_set = datasets.MNIST(root, train=False, transform=test_transform, download=False)
+        val_set = test_set
 
-    # generate data loader
-    train_loader = DataLoader(
-        train_set, batch_size=batch_size, shuffle=False)
+    elif dataset_type == 'cifar10':
+        mean = [0.49139968, 0.48215827, 0.44653124]
+        std = [0.24703233, 0.24348505, 0.26158768]
 
-    val_loader = DataLoader(val_set, batch_size=batch_size, shuffle=False)
+        transform = transforms.Compose([
+            transforms.RandomCrop(32, padding=4),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize(mean, std)
+        ])
 
-    test_loader = DataLoader(
-        test_set, batch_size=batch_size, shuffle=False)
+        test_transform = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize(mean, std)
+        ])
 
-    return train_loader, val_loader, test_loader, train_set
+        # load noisy dataset
+        train_set = CIFAR10Noisy(root, train=True, transform=transform, download=True, noise_type=noise_type,
+                                 noise_rate=noise_rate)
+        test_set = datasets.CIFAR10(root, train=False, transform=test_transform, download=False)
+        val_set = test_set
+
+    elif dataset_type == 'cifar100':
+        mean = [0.5071, 0.4865, 0.4409]
+        std = [0.2673, 0.2564, 0.2762]
+
+        transform = transforms.Compose([
+            transforms.RandomCrop(32, padding=4),
+            transforms.RandomHorizontalFlip(),
+            transforms.RandomRotation(20),
+            transforms.ToTensor(),
+            transforms.Normalize(mean, std)])
+
+        test_transform = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize(mean, std)])
+
+        # load noisy dataset
+        train_set = CIFAR100Noisy(root, train=True, transform=transform, download=True, noise_type=noise_type,
+                                  noise_rate=noise_rate)
+        test_set = datasets.CIFAR100(root, train=False, transform=test_transform, download=False)
+        val_set = test_set
+
+    # generate DataLoader
+    train_loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=False)
+    val_loader = DataLoader(val_set, batch_size=args.batch_size, shuffle=False)
+    test_loader = DataLoader(test_set, batch_size=args.batch_size, shuffle=False)
+
+    return train_loader, val_loader, test_loader, train_set.clean_sample_idx, train_set.noisy_sample_idx, train_set, \
+           len(train_set)
 
 
 def train(model, train_loader, optimizer, epoch, device, train_loss_lst, train_acc_lst):
@@ -199,7 +245,7 @@ def cyclical_train(model, train_loader, optimizer, epoch, device, train_loss_lst
 
 def plot_loss_acc(train_loss_lst, val_loss_lst, train_acc_lst, val_acc_lst, epochs, fig_path):
     # plot loss and accuracy curve
-    fig = plt.figure('Loss and acc')
+    fig = plt.figure('Loss and acc', dpi=150)
     plt.plot(range(epochs), train_loss_lst, 'g', label='train loss')
     plt.plot(range(epochs), val_loss_lst, 'k', label='val loss')
     plt.plot(range(epochs), train_acc_lst, 'r', label='train acc')
@@ -213,40 +259,49 @@ def plot_loss_acc(train_loss_lst, val_loss_lst, train_acc_lst, val_acc_lst, epoc
 
 
 if __name__ == "__main__":
-    torch.manual_seed(0)
+    # set seed
+    torch.manual_seed(args.seed)
+    np.random.seed(args.seed)
+
     # create output folder
     now = time.strftime('%Y-%m-%d-%H-%M-%S', time.localtime())
-    output_path = os.path.join(args.log_dir, args.name + now)
+    output_path = os.path.join(args.log_dir, args.project_name + now)
     os.makedirs(output_path)
 
-    logging.basicConfig(level=logging.DEBUG,
-                        format='%(asctime)s %(levelname)s  %(message)s',
-                        datefmt='%Y-%m-%d %H:%M:%S',
-                        filename=os.path.join(output_path, 'run.log'),
-                        filemode='a')
+    logging.basicConfig(level=logging.DEBUG, format='%(asctime)s %(levelname)s  %(message)s',
+                        datefmt='%Y-%m-%d %H:%M:%S', filename=os.path.join(output_path, 'run.log'), filemode='a')
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # ==========================================Step1: Pre-training=============================================
     logging.info('Step1: Pre-training')
+
     # prepare dataset, model and optimizer
-    train_loader, val_loader, test_loader, train_set = create_dataloader(batch_size=args.pretrain_batch_size)
-    model = MNISTNet().to(device)
+    train_loader, val_loader, test_loader, clean_sample_idx, noisy_sample_idx, train_set, dataset_len = \
+        create_dataloader(args.dataset, args.dataset_path, args.noise_type, args.noise_rate)
+
+    if args.dataset == 'mnist':
+        model = MNISTNet().to(device)
+    elif args.dataset == 'cifar10':
+        model = CIFAR10Net().to(device)
+        # model = CNN9Layer(num_classes=10, input_shape=3).to(device)
+    elif args.dataset == 'cifar100':
+        model = CNN9Layer(num_classes=100, input_shape=3).to(device)
+
     optimizer = optim.SGD(model.parameters(), lr=args.pretrain_lr, momentum=0.9, weight_decay=5e-4)
 
     # train validate and test
     train_loss_lst, val_loss_lst = [], []
     train_acc_lst, val_acc_lst = [], []
     for epoch in range(args.pretrain_epochs):
-        train_loss_lst, train_acc_lst = train(model, train_loader, optimizer,
-                                              epoch, device, train_loss_lst, train_acc_lst)
-        val_loss_lst, val_acc_lst = validate(
-            model, val_loader, device, val_loss_lst, val_acc_lst)
+        train_loss_lst, train_acc_lst = train(model, train_loader, optimizer, epoch, device, train_loss_lst,
+                                              train_acc_lst)
+        val_loss_lst, val_acc_lst = validate(model, val_loader, device, val_loss_lst, val_acc_lst)
     test(model, test_loader, device)
 
     # plot loss and accuracy curve
     plot_loss_acc(train_loss_lst, val_loss_lst, train_acc_lst, val_acc_lst, args.pretrain_epochs,
-                  os.path.join(output_path, 'o2u_mnist_pretrain.png'))
+                  os.path.join(output_path, 'o2u_pretrain.png'))
     # =======================================================================================================
 
     # =====================================Step2: Cyclical Training==========================================
@@ -255,8 +310,9 @@ if __name__ == "__main__":
     cycle_rounds = 4
     r1, r2 = 0.01, 0.001
     t = 0  # total epochs idx
-    train_loader, val_loader, test_loader, train_set = create_dataloader(batch_size=args.cycle_train_batch_size)
-    sample_loss = np.zeros(len(train_set))
+    train_loader, val_loader, test_loader, clean_sample_idx, noisy_sample_idx, train_set, dataset_len = \
+        create_dataloader(args.dataset, args.dataset_path, args.noise_type, args.noise_rate)
+    sample_loss = np.zeros(dataset_len)
 
     # cycle train
     train_loss_lst, val_loss_lst = [], []
@@ -266,17 +322,15 @@ if __name__ == "__main__":
             st = (1 + ((t - 1) % c)) / c
             rt = (1 - st) * r1 + st * r2
             optimizer = optim.SGD(model.parameters(), lr=rt, momentum=0.9, weight_decay=5e-4)
-            train_loss_lst, train_acc_lst, sample_loss = cyclical_train(model, train_loader, optimizer,
-                                                                        t, device, train_loss_lst, train_acc_lst,
-                                                                        sample_loss)
-            val_loss_lst, val_acc_lst = validate(
-                model, val_loader, device, val_loss_lst, val_acc_lst)
+            train_loss_lst, train_acc_lst, sample_loss = cyclical_train(model, train_loader, optimizer, t, device,
+                                                                        train_loss_lst, train_acc_lst, sample_loss)
+            val_loss_lst, val_acc_lst = validate(model, val_loader, device, val_loss_lst, val_acc_lst)
             t += 1
         test(model, test_loader, device)
 
     # plot loss and accuracy curve
     plot_loss_acc(train_loss_lst, val_loss_lst, train_acc_lst, val_acc_lst, t,
-                  os.path.join(output_path, 'o2u_mnist_cyclicaltrain.png'))
+                  os.path.join(output_path, 'o2u_cyclical_train.png'))
 
     # rank loss of each sample
     ranks = [(idx, loss) for idx, loss in enumerate(list(sample_loss))]
@@ -286,13 +340,8 @@ if __name__ == "__main__":
     # sub noisy set and clean set
     noisy_indices = [item[0] for item in ranks[:100]]  # subtract top 100 noisy data from dataset
     noisy_set = Subset(train_set, noisy_indices)  # noisy set
-    clean_indices = [
-        i for i in list(range(len(train_set))) if i not in noisy_indices]  # diff indices
+    clean_indices = [i for i in list(range(len(train_set))) if i not in noisy_indices]  # diff indices
     clean_set = Subset(train_set, clean_indices)  # clean set
-    # ======================================================================================================
-
-    # =====================================Step3: Training on clean data====================================
-    logging.info('Step3: Training on clean data')
 
     # save noisy pics
     noisy_loader = DataLoader(noisy_set, batch_size=len(noisy_set), shuffle=False)
@@ -303,27 +352,38 @@ if __name__ == "__main__":
     print('Noisy labels:', labels)
     logging.info('Noisy labels:' + str(labels[:104].detach().cpu().numpy().tolist()))
     plt.imshow(grid.numpy().transpose((1, 2, 0)))
-    plt.savefig(os.path.join(output_path, 'mnist_noisy.png'))
+    plt.savefig(os.path.join(output_path, 'noisy.png'))
     plt.close(fig)
+    # ======================================================================================================
+
+    # =====================================Step3: Training on clean data====================================
+    logging.info('Step3: Training on clean data')
 
     # prepare dataset model and optimizer
     train_loader = DataLoader(clean_set, batch_size=args.retrain_batch_size, shuffle=True)
-    model = MNISTNet().to(device)
+
+    if args.dataset == 'mnist':
+        model = MNISTNet().to(device)
+    elif args.dataset == 'cifar10':
+        model = CIFAR10Net().to(device)
+        # model = CNN9Layer(num_classes=10, input_shape=3).to(device)
+    elif args.dataset == 'cifar100':
+        model = CNN9Layer(num_classes=100, input_shape=3).to(device)
+
     optimizer = optim.SGD(model.parameters(), lr=args.retrain_lr, momentum=0.9, weight_decay=5e-4)
 
     # train, validate and test
     train_loss_lst, val_loss_lst = [], []
     train_acc_lst, val_acc_lst = [], []
     for epoch in range(args.retrain_epochs):
-        train_loss_lst, train_acc_lst = train(model, train_loader, optimizer,
-                                              epoch, device, train_loss_lst, train_acc_lst)
-        val_loss_lst, val_acc_lst = validate(
-            model, val_loader, device, val_loss_lst, val_acc_lst)
+        train_loss_lst, train_acc_lst = train(model, train_loader, optimizer, epoch, device, train_loss_lst,
+                                              train_acc_lst)
+        val_loss_lst, val_acc_lst = validate(model, val_loader, device, val_loss_lst, val_acc_lst)
     test(model, test_loader, device)
 
     # plot loss and accuracy curve
     plot_loss_acc(train_loss_lst, val_loss_lst, train_acc_lst, val_acc_lst, args.retrain_epochs,
-                  os.path.join(output_path, 'o2u_mnist_retrain.png'))
+                  os.path.join(output_path, 'o2u_retrain.png'))
     # save model
-    torch.save(model.state_dict(), os.path.join(output_path, args.name + ".pth"))
+    torch.save(model.state_dict(), os.path.join(output_path, args.project_name + ".pth"))
     # ======================================================================================================

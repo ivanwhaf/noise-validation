@@ -1,6 +1,6 @@
 """
-2021/3/9
-train mnist co-teaching
+2021/10/22
+train co-teaching
 """
 import argparse
 import os
@@ -8,50 +8,98 @@ import time
 
 # from torchvision.models import resnet18, resnet34, resnet50
 import matplotlib.pyplot as plt
+import numpy as np
 import torch
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms, utils
 
 from models.models import *
+from utils.dataset import CIFAR10Noisy, MNISTNoisy, CIFAR100Noisy
 
 parser = argparse.ArgumentParser()
-parser.add_argument('-name', type=str, help='project name', default='mnist_coteaching')
+parser.add_argument('-project_name', type=str, help='project name', default='cifar10_coteaching_s0.2')
+parser.add_argument('-noise_type', type=str, help='noise type', default='symmetric')
+parser.add_argument('-noise_rate', type=float, help='noise rate', default=0.2)
+parser.add_argument('-dataset', type=str, help='dataset type', default='cifar10')
 parser.add_argument('-dataset_path', type=str, help='relative path of dataset', default='../dataset')
-parser.add_argument('-batch_size', type=int, help='batch size', default=64)
+parser.add_argument('-num_classes', type=int, help='number of classes', default=10)
+parser.add_argument('-batch_size', type=int, help='batch size', default=128)
 parser.add_argument('-lr', type=float, help='learning rate', default=0.01)
 parser.add_argument('-epochs', type=int, help='training epochs', default=100)
-parser.add_argument('-noise_rate', type=float, help='co-teaching noise rate', default=0.05)
+parser.add_argument('-l2_reg', type=float, help='l2 regularization', default=1e-4)
+parser.add_argument('-seed', type=int, help='numpy and pytorch seed', default=0)
 parser.add_argument('-log_dir', type=str, help='log dir', default='output')
 args = parser.parse_args()
 
 
-def create_dataloader():
-    transform = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize(mean=(0.1307,), std=(0.3081,))
-    ])
+def create_dataloader(dataset_type, root, noise_type, noise_rate):
+    if dataset_type == 'mnist':
+        transform = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize(mean=(0.1307,), std=(0.3081,))
+        ])
 
-    # load dataset
-    train_set = datasets.MNIST(
-        args.dataset_path, train=True, transform=transform, download=True)
-    test_set = datasets.MNIST(
-        args.dataset_path, train=False, transform=transform, download=False)
+        test_transform = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize(mean=(0.1307,), std=(0.3081,))
+        ])
 
-    # split train set into train-val set
-    train_set, val_set = torch.utils.data.random_split(train_set, [
-        50000, 10000])
+        # load noisy dataset
+        train_set = MNISTNoisy(root, train=True, transform=transform, download=True, noise_type=noise_type,
+                               noise_rate=noise_rate)
+        test_set = datasets.MNIST(root, train=False, transform=test_transform, download=False)
+        val_set = test_set
+
+    elif dataset_type == 'cifar10':
+        mean = [0.49139968, 0.48215827, 0.44653124]
+        std = [0.24703233, 0.24348505, 0.26158768]
+
+        transform = transforms.Compose([
+            transforms.RandomCrop(32, padding=4),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize(mean, std)
+        ])
+
+        test_transform = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize(mean, std)
+        ])
+
+        # load noisy dataset
+        train_set = CIFAR10Noisy(root, train=True, transform=transform, download=True, noise_type=noise_type,
+                                 noise_rate=noise_rate)
+        test_set = datasets.CIFAR10(root, train=False, transform=test_transform, download=False)
+        val_set = test_set
+
+    elif dataset_type == 'cifar100':
+        mean = [0.5071, 0.4865, 0.4409]
+        std = [0.2673, 0.2564, 0.2762]
+
+        transform = transforms.Compose([
+            transforms.RandomCrop(32, padding=4),
+            transforms.RandomHorizontalFlip(),
+            transforms.RandomRotation(20),
+            transforms.ToTensor(),
+            transforms.Normalize(mean, std)])
+
+        test_transform = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize(mean, std)])
+
+        # load noisy dataset
+        train_set = CIFAR100Noisy(root, train=True, transform=transform, download=True, noise_type=noise_type,
+                                  noise_rate=noise_rate)
+        test_set = datasets.CIFAR100(root, train=False, transform=test_transform, download=False)
+        val_set = test_set
 
     # generate DataLoader
-    train_loader = DataLoader(
-        train_set, batch_size=args.batch_size, shuffle=True)
-
+    train_loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=False)
     val_loader = DataLoader(val_set, batch_size=args.batch_size, shuffle=False)
+    test_loader = DataLoader(test_set, batch_size=args.batch_size, shuffle=False)
 
-    test_loader = DataLoader(
-        test_set, batch_size=args.batch_size, shuffle=False)
-
-    return train_loader, val_loader, test_loader
+    return train_loader, val_loader, test_loader, train_set.clean_sample_idx, train_set.noisy_sample_idx, len(train_set)
 
 
 def train(model1, model2, train_loader, optimizer1, optimizer2, epoch, device, train_loss_lst, train_acc_lst):
@@ -61,6 +109,7 @@ def train(model1, model2, train_loader, optimizer1, optimizer2, epoch, device, t
     correct2 = 0
     train_loss1 = 0
     train_loss2 = 0
+
     for batch_idx, (inputs, labels) in enumerate(train_loader):
         inputs, labels = inputs.to(device), labels.to(device)
         outputs1 = model1(inputs)
@@ -77,8 +126,8 @@ def train(model1, model2, train_loader, optimizer1, optimizer2, epoch, device, t
 
         rt = 1 - args.noise_rate * (epoch / args.epochs)
         k = int(rt * inputs.size(0))
-        value1, index1 = torch.topk(loss1, k, largest=False)
-        value2, index2 = torch.topk(loss2, k, largest=False)
+        _, index1 = torch.topk(loss1, k, largest=False)
+        _, index2 = torch.topk(loss2, k, largest=False)
         loss1 = torch.index_select(loss1, dim=-1, index=index2).mean()
         loss2 = torch.index_select(loss2, dim=-1, index=index1).mean()
 
@@ -120,7 +169,6 @@ def validate(model1, model2, val_loader, device, val_loss_lst, val_acc_lst):
     val_loss2 = 0
     correct1 = 0
     correct2 = 0
-
     # no need to calculate gradients
     with torch.no_grad():
         for data, target in val_loader:
@@ -190,43 +238,55 @@ def test(model1, model2, test_loader, device):
 
 
 if __name__ == "__main__":
-    torch.manual_seed(0)
+    torch.manual_seed(args.seed)
+    np.random.seed(args.seed)
     # create output folder
     now = time.strftime('%Y-%m-%d-%H-%M-%S', time.localtime())
-    output_path = os.path.join(args.log_dir, args.name + now)
+    output_path = os.path.join(args.log_dir, args.project_name + now)
     os.makedirs(output_path)
 
-    train_loader, val_loader, test_loader = create_dataloader()  # get data loader
+    train_loader, val_loader, test_loader, clean_sample_idx, noisy_sample_idx, dataset_len = create_dataloader(
+        args.dataset,
+        args.dataset_path,
+        args.noise_type,
+        args.noise_rate)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    model1 = MNISTNet().to(device)
-    model2 = MNISTNet().to(device)
-    # model = resnet18(num_classes=32).to(device)
+    if args.dataset == 'mnist':
+        model1 = MNISTNet().to(device)
+        model2 = MNISTNet().to(device)
+    elif args.dataset == 'cifar10':
+        model1 = CIFAR10Net().to(device)
+        model2 = CIFAR10Net().to(device)
+        # model1 = CNN9Layer(num_classes=10, input_shape=3).to(device)
+        # model2 = CNN9Layer(num_classes=10, input_shape=3).to(device)
+    elif args.dataset == 'cifar100':
+        model1 = CNN9Layer(num_classes=100, input_shape=3).to(device)
+        model2 = CNN9Layer(num_classes=100, input_shape=3).to(device)
 
-    optimizer1 = optim.SGD(model1.parameters(), lr=args.lr, momentum=0.9)
-    optimizer2 = optim.SGD(model2.parameters(), lr=args.lr, momentum=0.9)
+    optimizer1 = optim.SGD(model1.parameters(), lr=args.lr, momentum=0.9, weight_decay=args.l2_reg)
+    optimizer2 = optim.SGD(model2.parameters(), lr=args.lr, momentum=0.9, weight_decay=args.l2_reg)
 
     train_loss_lst, val_loss_lst = [], []
     train_acc_lst, val_acc_lst = [], []
 
     # main loop(train,val,test)
     for epoch in range(args.epochs):
-        train_loss_lst, train_acc_lst = train(model1, model2, train_loader, optimizer1, optimizer2,
-                                              epoch, device, train_loss_lst, train_acc_lst)
-        val_loss_lst, val_acc_lst = validate(
-            model1, model2, val_loader, device, val_loss_lst, val_acc_lst)
+        train_loss_lst, train_acc_lst = train(model1, model2, train_loader, optimizer1, optimizer2, epoch, device,
+                                              train_loss_lst, train_acc_lst)
+        val_loss_lst, val_acc_lst = validate(model1, model2, val_loader, device, val_loss_lst, val_acc_lst)
 
         # modify learning rate
-        if epoch in [40, 60, 80]:
+        if epoch in [40, 80]:
             args.lr *= 0.1
-            optimizer1 = optim.SGD(model1.parameters(), lr=args.lr, momentum=0.9)
-            optimizer2 = optim.SGD(model2.parameters(), lr=args.lr, momentum=0.9)
+            optimizer1 = optim.SGD(model1.parameters(), lr=args.lr, momentum=0.9, weight_decay=args.l2_reg)
+            optimizer2 = optim.SGD(model2.parameters(), lr=args.lr, momentum=0.9, weight_decay=args.l2_reg)
 
     test(model1, model2, test_loader, device)
 
     # plot loss and accuracy curve
-    fig = plt.figure('Loss and acc')
+    fig = plt.figure('Loss and acc', dpi=150)
     plt.plot(range(args.epochs), train_loss_lst, 'g', label='train loss')
     plt.plot(range(args.epochs), val_loss_lst, 'k', label='val loss')
     plt.plot(range(args.epochs), train_acc_lst, 'r', label='train acc')
@@ -240,5 +300,5 @@ if __name__ == "__main__":
     plt.close(fig)
 
     # save model
-    torch.save(model1.state_dict(), os.path.join(output_path, args.name + "_model1.pth"))
-    torch.save(model2.state_dict(), os.path.join(output_path, args.name + "_model2.pth"))
+    torch.save(model1.state_dict(), os.path.join(output_path, args.project_name + "_model1.pth"))
+    torch.save(model2.state_dict(), os.path.join(output_path, args.project_name + "_model2.pth"))

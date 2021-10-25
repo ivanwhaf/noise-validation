@@ -14,14 +14,14 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms, utils
 
-from models import MNISTNet, CNN9Layer
+from models import MNISTNet, CNN9Layer, CIFAR10Net
 from utils.dataset import MNISTNoisy, CIFAR10Noisy, CIFAR100Noisy
 
 parser = argparse.ArgumentParser()
-parser.add_argument('-project_name', type=str, help='project name', default='noisy_mnist_as0.4')
+parser.add_argument('-project_name', type=str, help='project name', default='noisy_cifar10_as0.4')
 parser.add_argument('-noise_type', type=str, help='noise type', default='asymmetric')
 parser.add_argument('-noise_rate', type=float, help='noise rate', default=0.4)
-parser.add_argument('-dataset', type=str, help='dataset type', default='mnist')
+parser.add_argument('-dataset', type=str, help='dataset type', default='cifar10')
 parser.add_argument('-dataset_path', type=str, help='relative path of dataset', default='../dataset')
 parser.add_argument('-num_classes', type=int, help='number of classes', default=10)
 parser.add_argument('-epochs', type=int, help='training epochs', default=100)
@@ -35,9 +35,11 @@ args = parser.parse_args()
 
 def create_dataloader(dataset_type, root, noise_type, noise_rate):
     if dataset_type == 'mnist':
+        mean = (0.1307,)
+        std = (0.3081,)
         transform = transforms.Compose([
             transforms.ToTensor(),
-            transforms.Normalize(mean=(0.1307,), std=(0.3081,))
+            transforms.Normalize(mean=mean, std=std)
         ])
 
         test_transform = transforms.Compose([
@@ -223,6 +225,7 @@ if __name__ == "__main__":
     if args.dataset == 'mnist':
         model = MNISTNet().to(device)
     elif args.dataset == 'cifar10':
+        # model = CIFAR10Net().to(device)
         model = CNN9Layer(num_classes=10, input_shape=3).to(device)
     elif args.dataset == 'cifar100':
         model = CNN9Layer(num_classes=100, input_shape=3).to(device)
@@ -272,7 +275,7 @@ if __name__ == "__main__":
     test(model, test_loader, device)
 
     # plot train/val/test loss and accuracy curve
-    fig = plt.figure('Loss and acc', dpi=200)
+    fig = plt.figure('Loss and acc', dpi=150)
     plt.plot(range(args.epochs), train_loss_lst, 'g', label='train loss')
     plt.plot(range(args.epochs), val_loss_lst, 'k', label='val loss')
     plt.plot(range(args.epochs), train_acc_lst, 'r', label='train acc')
