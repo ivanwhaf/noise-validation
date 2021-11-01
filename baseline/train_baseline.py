@@ -4,6 +4,7 @@ train baseline
 """
 import argparse
 import os
+import random
 import time
 
 import matplotlib.pyplot as plt
@@ -54,7 +55,7 @@ def create_dataloader(dataset_type, root):
         transform = transforms.Compose([
             transforms.RandomCrop(32, padding=4),
             transforms.RandomHorizontalFlip(),
-            transforms.RandomRotation(20),
+            # transforms.RandomRotation(20),
             transforms.ToTensor(),
             transforms.Normalize(mean, std)
         ])
@@ -195,10 +196,14 @@ def test(model, test_loader, device):
                   100. * correct / len(test_loader.dataset)))
 
 
+def set_seed(seed):
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+
+
 if __name__ == "__main__":
-    # set seed
-    torch.manual_seed(args.seed)
-    np.random.seed(args.seed)
+    set_seed(args.seed)
 
     # create output folder
     now = time.strftime('%Y-%m-%d-%H-%M-%S', time.localtime())

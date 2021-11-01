@@ -1,9 +1,10 @@
 """
 2021/5/8
-train mnist baseline noisy
+train baseline noisy
 """
 import argparse
 import os
+import random
 import time
 
 import matplotlib.pyplot as plt
@@ -14,14 +15,14 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms, utils
 
-from models import MNISTNet, CNN9Layer, CIFAR10Net
+from models import MNISTNet, CNN9Layer
 from utils.dataset import MNISTNoisy, CIFAR10Noisy, CIFAR100Noisy
 
 parser = argparse.ArgumentParser()
-parser.add_argument('-project_name', type=str, help='project name', default='noisy_cifar10_as0.4')
+parser.add_argument('-project_name', type=str, help='project name', default='noisy_cifar100_as0.6')
 parser.add_argument('-noise_type', type=str, help='noise type', default='asymmetric')
-parser.add_argument('-noise_rate', type=float, help='noise rate', default=0.4)
-parser.add_argument('-dataset', type=str, help='dataset type', default='cifar10')
+parser.add_argument('-noise_rate', type=float, help='noise rate', default=0.6)
+parser.add_argument('-dataset', type=str, help='dataset type', default='cifar100')
 parser.add_argument('-dataset_path', type=str, help='relative path of dataset', default='../dataset')
 parser.add_argument('-num_classes', type=int, help='number of classes', default=10)
 parser.add_argument('-epochs', type=int, help='training epochs', default=100)
@@ -204,9 +205,14 @@ def test(model, test_loader, device):
                   100. * correct / len(test_loader.dataset)))
 
 
+def set_seed(seed):
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+
+
 if __name__ == "__main__":
-    torch.manual_seed(args.seed)
-    np.random.seed(args.seed)
+    set_seed(args.seed)
 
     # create output folder
     now = time.strftime('%Y-%m-%d-%H-%M-%S', time.localtime())

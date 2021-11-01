@@ -4,6 +4,7 @@ train fixmatch
 """
 import argparse
 import os
+import random
 import time
 
 import matplotlib.pyplot as plt
@@ -19,20 +20,21 @@ from models import MNISTNet, CNN9Layer, CIFAR10Net
 from randaugment import RandAugmentMC
 
 parser = argparse.ArgumentParser()
-parser.add_argument('-project_name', type=str, help='project name', default='fixmatch')
+parser.add_argument('-project_name', type=str, help='project name', default='fixmatch_cifar10')
 parser.add_argument('-dataset_path', type=str, help='relative path of dataset', default='../dataset')
 parser.add_argument('-dataset', type=str, help='dataset type', default='cifar10')
 parser.add_argument('-num_classes', type=int, help='number of classes', default=10)
 parser.add_argument('-epochs', type=int, help='training epochs', default=600)
-parser.add_argument('-batch_size', type=int, help='batch size', default=128)
-parser.add_argument('-lr', type=float, help='learning rate', default=0.01)
-parser.add_argument('-l2_reg', type=float, help='l2 regularization', default=1e-4)
+parser.add_argument('-batch_size', type=int, help='batch size', default=64)
+parser.add_argument('-lr', type=float, help='learning rate', default=0.03)
+parser.add_argument('-l2_reg', type=float, help='l2 regularization', default=5e-4)
 parser.add_argument('-seed', type=int, help='numpy and pytorch seed', default=0)
 parser.add_argument('-num_labeled', type=int, help='number of labeled samples', default=4000)
 parser.add_argument('-num_unlabeled', type=int, help='number of unlabeled samples', default=46000)
-parser.add_argument('-T', default=0.5, type=float)
-parser.add_argument('-alpha', type=float, help='beta distribution param alpha', default=0.75)
-parser.add_argument('-lam_u', type=float, help='lambda u', default=75)
+parser.add_argument('-T', default=1, type=float)
+parser.add_argument('-mu', type=int, help='coefficient of unlabeled batch size', default=7)
+parser.add_argument('-tao', type=float, help='pseudo label threshold', default=0.95)
+parser.add_argument('-lam_u', type=float, help='coefficient of unlabeled loss', default=1)
 parser.add_argument('-log_dir', type=str, help='log dir', default='output')
 args = parser.parse_args()
 
@@ -202,53 +204,32 @@ def train(model, labeled_loader, unlabeled_loader, optimizer, epoch, device, tra
             unlabeled_iter = iter(unlabeled_loader)
             (inputs_u_w, inputs_u_s), _ = next(unlabeled_iter)
 
-        loss_s = F.cross_entropy(inputs_x, labels_x)
-
-        inputs_u_w, inputs_u_s = inputs_u_w.to(device), inputs_u_s.to(device)
-
-        # Transform label to one-hot
-        # targets_x = torch.zeros(inputs_x.size(0), args.num_classes).scatter_(1, labels_x.view(-1, 1).long(), 1)
-        targets_x = F.one_hot(labels_x, args.num_classes).float().to(device)
+        # loss labeled
         inputs_x, labels_x = inputs_x.to(device), labels_x.to(device)
+        outputs_x = model(inputs_x)
 
         # calculate training accuracy
+        pred = outputs_x.max(1, keepdim=True)[1]
+        correct += pred.eq(labels_x.view_as(pred)).sum().item()
+        loss_s = F.cross_entropy(outputs_x, labels_x)
+
+        # loss unlabeled
+        inputs_u_w, inputs_u_s = inputs_u_w.to(device), inputs_u_s.to(device)
         with torch.no_grad():
-            outputs = model(inputs_x)
-            pred = outputs.max(1, keepdim=True)[1]
-            correct += pred.eq(labels_x.view_as(pred)).sum().item()
+            outputs_u_w = model(inputs_u_w)
+            max_probs, targets_u = torch.max(outputs_u_w, 1)
+            select_indices = torch.nonzero(torch.ge(max_probs, args.tao)).squeeze(1)
+            # print(select_indices.shape, select_indices)
 
-        # compute guessed labels of unlabeled samples
-        # with torch.no_grad():
-        #     outputs_u1 = model(inputs_u1)
-        #     outputs_u2 = model(inputs_u2)
-        #     p = (torch.softmax(outputs_u1, dim=1) + torch.softmax(outputs_u2, dim=1)) / 2
-        #     pt = p ** (1 / args.T)
-        #     targets_u = pt / pt.sum(dim=1, keepdim=True)
-        #     targets_u = targets_u.detach()
+        if select_indices.shape[0] != 0:
+            inputs_u_s = torch.index_select(inputs_u_s, dim=0, index=select_indices)
+            targets_u = torch.index_select(targets_u, dim=0, index=select_indices)
+            outputs_u_s = model(inputs_u_s)
+            loss_u = F.cross_entropy(outputs_u_s, targets_u)
+        else:
+            loss_u = 0
 
-        # # MixUp(X,W) + MixUp(U,W)
-        # inputs_w = torch.cat([inputs_x, inputs_u1, inputs_u2], dim=0)  # W
-        # targets_w = torch.cat([targets_x, targets_u, targets_u], dim=0)
-        # inputs_u = torch.cat([inputs_u1, inputs_u2], dim=0)  # U
-        # targets_u = torch.cat([targets_u, targets_u], dim=0)
-        #
-        # # ----------------------------MixUp(X,W)----------------------------------
-        # indices = torch.randperm(len(inputs_w))[:len(inputs_x)]
-        # lam = np.random.beta(args.alpha, args.alpha)
-        # inputs_x = lam * inputs_x + (1 - lam) * inputs_w[indices]
-        # targets_x = lam * targets_x + (1 - lam) * targets_w[indices]
-        # outputs_x = model(inputs_x)
-        #
-        # # ----------------------------MixUp(U,W)---------------------------------
-        # indices = torch.randperm(len(inputs_w))[:len(inputs_u)]
-        # inputs_u = lam * inputs_u + (1 - lam) * inputs_w[indices]
-        # targets_u = lam * targets_u + (1 - lam) * targets_w[indices]
-        # outputs_u = model(inputs_u)
-        #
-        # # MixMatch loss
-        # criterion = SemiLoss()
-        # loss_x, loss_u, lam_u = criterion(outputs_x, targets_x, outputs_u, targets_u, epoch)
-        # loss = loss_x + lam_u * loss_u
+        loss = loss_s + args.lam_u * loss_u
 
         optimizer.zero_grad()
         loss.backward()
@@ -334,6 +315,7 @@ def test(model, test_loader, device):
 if __name__ == "__main__":
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
+    random.seed(args.seed)
 
     # create output folder
     now = time.strftime('%Y-%m-%d-%H-%M-%S', time.localtime())
@@ -364,9 +346,9 @@ if __name__ == "__main__":
         val_loss_lst, val_acc_lst = validate(model, val_loader, device, val_loss_lst, val_acc_lst)
 
         # modify learning rate
-        # if epoch in [40, 80]:
-        #     args.lr *= 0.1
-        #     optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9, weight_decay=args.l2_red)
+        if epoch in [40, 80]:
+            args.lr *= 0.1
+            optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9, weight_decay=args.l2_reg)
 
     test(model, test_loader, device)
 

@@ -31,7 +31,7 @@ parser.add_argument('-num_labeled', type=int, help='number of labeled samples', 
 parser.add_argument('-num_unlabeled', type=int, help='number of unlabeled samples', default=46000)
 parser.add_argument('-T', default=0.5, type=float)
 parser.add_argument('-alpha', type=float, help='beta distribution param alpha', default=0.75)
-parser.add_argument('-lam_u', type=float, help='lambda u', default=75)
+parser.add_argument('-lam_u', type=float, help='coefficient of unlabeled loss', default=75)
 parser.add_argument('-log_dir', type=str, help='log dir', default='output')
 args = parser.parse_args()
 
@@ -226,6 +226,7 @@ def train(model, labeled_loader, unlabeled_loader, optimizer, epoch, device, tra
 
         # ----------------------------MixUp(U,W)---------------------------------
         indices = torch.randperm(len(inputs_w))[:len(inputs_u)]
+        lam = np.random.beta(args.alpha, args.alpha)
         inputs_u = lam * inputs_u + (1 - lam) * inputs_w[indices]
         targets_u = lam * targets_u + (1 - lam) * targets_w[indices]
         outputs_u = model(inputs_u)
