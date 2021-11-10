@@ -16,7 +16,7 @@ import torch.optim as optim
 from torch.utils.data import Subset, DataLoader
 from torchvision import datasets, transforms, utils
 
-from models import MNISTNet, CNN9Layer, CIFAR10Net
+from models import MNISTNet, CNN9Layer
 from randaugment import RandAugmentMC
 
 parser = argparse.ArgumentParser()
@@ -31,10 +31,11 @@ parser.add_argument('-l2_reg', type=float, help='l2 regularization', default=5e-
 parser.add_argument('-seed', type=int, help='numpy and pytorch seed', default=0)
 parser.add_argument('-num_labeled', type=int, help='number of labeled samples', default=4000)
 parser.add_argument('-num_unlabeled', type=int, help='number of unlabeled samples', default=46000)
-parser.add_argument('-T', default=1, type=float)
+parser.add_argument('-T', type=float, help='pseudo label temperature', default=1)
 parser.add_argument('-mu', type=int, help='coefficient of unlabeled batch size', default=7)
 parser.add_argument('-tao', type=float, help='pseudo label threshold', default=0.95)
 parser.add_argument('-lam_u', type=float, help='coefficient of unlabeled loss', default=1)
+parser.add_argument('-warm_up_epoch', type=int, help='warm up epoch', default=0)
 parser.add_argument('-log_dir', type=str, help='log dir', default='output')
 args = parser.parse_args()
 
@@ -173,8 +174,6 @@ def create_dataloader(dataset_type, root):
         test_set = datasets.CIFAR100(root, train=False, transform=test_transform, download=False)
         val_set = test_set
 
-        indices = np.arange(len(train_set))
-        np.random.shuffle(indices)
         labeled_set = Subset(train_set, indices=np.random.permutation(len(train_set))[:args.num_labeled])
         train_set = datasets.MNIST(root, train=True, transform=TransformFixMatch(mean, std), download=False)
         unlabeled_set = Subset(train_set, indices=np.random.permutation(len(train_set))[:args.num_unlabeled])
@@ -182,7 +181,7 @@ def create_dataloader(dataset_type, root):
     # generate DataLoader
     # train_loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=True)
     labeled_loader = DataLoader(labeled_set, batch_size=args.batch_size, shuffle=True)
-    unlabeled_loader = DataLoader(unlabeled_set, batch_size=args.batch_size, shuffle=True)
+    unlabeled_loader = DataLoader(unlabeled_set, batch_size=args.batch_size * args.mu, shuffle=True)
     val_loader = DataLoader(val_set, batch_size=args.batch_size, shuffle=False)
     test_loader = DataLoader(test_set, batch_size=args.batch_size, shuffle=False)
 
@@ -190,13 +189,13 @@ def create_dataloader(dataset_type, root):
     return labeled_loader, unlabeled_loader, val_loader, test_loader
 
 
-def train(model, labeled_loader, unlabeled_loader, optimizer, epoch, device, train_loss_lst,
+def train(model, labeled_loader, unlabeled_loader, unlabeled_iter, optimizer, epoch, device, train_loss_lst,
           train_acc_lst):
     model.train()
     correct = 0
     train_loss = 0
 
-    unlabeled_iter = iter(unlabeled_loader)
+    # unlabeled_iter = iter(unlabeled_loader)
     for batch_idx, (inputs_x, labels_x) in enumerate(labeled_loader):
         try:
             (inputs_u_w, inputs_u_s), _ = next(unlabeled_iter)
@@ -213,21 +212,27 @@ def train(model, labeled_loader, unlabeled_loader, optimizer, epoch, device, tra
         correct += pred.eq(labels_x.view_as(pred)).sum().item()
         loss_s = F.cross_entropy(outputs_x, labels_x)
 
-        # loss unlabeled
-        inputs_u_w, inputs_u_s = inputs_u_w.to(device), inputs_u_s.to(device)
-        with torch.no_grad():
-            outputs_u_w = model(inputs_u_w)
-            max_probs, targets_u = torch.max(outputs_u_w, 1)
-            select_indices = torch.nonzero(torch.ge(max_probs, args.tao)).squeeze(1)
-            # print(select_indices.shape, select_indices)
-
-        if select_indices.shape[0] != 0:
-            inputs_u_s = torch.index_select(inputs_u_s, dim=0, index=select_indices)
-            targets_u = torch.index_select(targets_u, dim=0, index=select_indices)
-            outputs_u_s = model(inputs_u_s)
-            loss_u = F.cross_entropy(outputs_u_s, targets_u)
-        else:
+        if epoch < args.warm_up_epoch:
             loss_u = 0
+        else:
+            # loss unlabeled
+            inputs_u_w, inputs_u_s = inputs_u_w.to(device), inputs_u_s.to(device)
+            with torch.no_grad():
+                outputs_u_w = model(inputs_u_w)
+                # outputs_u_w = torch.softmax(outputs_u_w.detach() / args.T, dim=-1)
+                outputs_u_w = F.softmax(outputs_u_w, dim=-1)
+                max_probs, targets_u = torch.max(outputs_u_w, 1)
+                # print(targets_u.shape, targets_u)
+                select_indices = torch.nonzero(torch.ge(max_probs, args.tao)).squeeze(1)
+                # print(select_indices.shape, select_indices)
+
+            if select_indices.shape[0] != 0:
+                inputs_u_s = torch.index_select(inputs_u_s, dim=0, index=select_indices)
+                targets_u = torch.index_select(targets_u, dim=0, index=select_indices)
+                outputs_u_s = model(inputs_u_s)
+                loss_u = F.cross_entropy(outputs_u_s, targets_u)
+            else:
+                loss_u = 0
 
         loss = loss_s + args.lam_u * loss_u
 
@@ -312,10 +317,15 @@ def test(model, test_loader, device):
                   100. * correct / len(test_loader.dataset)))
 
 
+def set_seed(seed):
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+
+
 if __name__ == "__main__":
-    torch.manual_seed(args.seed)
-    np.random.seed(args.seed)
-    random.seed(args.seed)
+    set_seed(args.seed)
 
     # create output folder
     now = time.strftime('%Y-%m-%d-%H-%M-%S', time.localtime())
@@ -329,31 +339,31 @@ if __name__ == "__main__":
     if args.dataset == 'mnist':
         model = MNISTNet().to(device)
     elif args.dataset == 'cifar10':
-        model = CIFAR10Net().to(device)
-        # model = CNN9Layer(num_classes=10, input_shape=3).to(device)
+        # model = CIFAR10Net().to(device)
+        model = CNN9Layer(num_classes=10, input_shape=3).to(device)
     elif args.dataset == 'cifar100':
         model = CNN9Layer(num_classes=100, input_shape=3).to(device)
 
-    optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9, weight_decay=args.l2_reg)
+    optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9, weight_decay=args.l2_reg, nesterov=True)
 
     train_loss_lst, val_loss_lst = [], []
     train_acc_lst, val_acc_lst = [], []
 
     # main loop(train,val,test)
     for epoch in range(args.epochs):
-        train_loss_lst, train_acc_lst = train(model, labeled_loader, unlabeled_loader, optimizer, epoch, device,
-                                              train_loss_lst, train_acc_lst)
+        train_loss_lst, train_acc_lst = train(model, labeled_loader, unlabeled_loader, iter(unlabeled_loader),
+                                              optimizer, epoch, device, train_loss_lst, train_acc_lst)
         val_loss_lst, val_acc_lst = validate(model, val_loader, device, val_loss_lst, val_acc_lst)
 
         # modify learning rate
-        if epoch in [40, 80]:
-            args.lr *= 0.1
-            optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9, weight_decay=args.l2_reg)
+        # if epoch in [40, 80]:
+        #     args.lr *= 0.1
+        #     optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9, weight_decay=args.l2_reg, nesterov=True)
 
     test(model, test_loader, device)
 
     # plot loss and accuracy curve
-    fig = plt.figure('Loss and acc', dpi=200)
+    fig = plt.figure('Loss and acc', dpi=150)
     plt.plot(range(args.epochs), train_loss_lst, 'g', label='train loss')
     plt.plot(range(args.epochs), val_loss_lst, 'k', label='val loss')
     plt.plot(range(args.epochs), train_acc_lst, 'r', label='train acc')

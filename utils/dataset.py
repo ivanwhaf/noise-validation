@@ -13,7 +13,7 @@ from torchvision import datasets, transforms, utils
 
 class MNISTNoisy(Dataset):
     def __init__(self, root, train, transform, download, noise_type='symmetric', noise_rate=0.2):
-        self.mnist = datasets.MNIST(root, train, transform, download=download)
+        self.base_dataset = datasets.MNIST(root, train, transform, download=download)
         self.noise_type = noise_type
         self.noise_rate = noise_rate
         self.clean_sample_idx = []
@@ -32,15 +32,15 @@ class MNISTNoisy(Dataset):
         ntm = noise_rate * np.full((num_classes, num_classes), 1 / (num_classes - 1))
         np.fill_diagonal(ntm, 1 - noise_rate)
 
-        sample_indices = np.arange(len(self.mnist))
+        sample_indices = np.arange(len(self.base_dataset))
         # np.random.shuffle(indices)
 
         # generate noisy label by noise transition matrix
         for i in sample_indices:
-            label = np.random.choice(num_classes, p=ntm[self.mnist.targets[i]])  # new label
-            if label != self.mnist.targets[i]:
+            label = np.random.choice(num_classes, p=ntm[self.base_dataset.targets[i]])  # new label
+            if label != self.base_dataset.targets[i]:
                 self.noisy_sample_idx.append(i)
-            self.mnist.targets[i] = label
+            self.base_dataset.targets[i] = label
 
         self.clean_sample_idx = np.setdiff1d(sample_indices, self.noisy_sample_idx)
 
@@ -62,14 +62,14 @@ class MNISTNoisy(Dataset):
         for i in [0, 1, 4, 8, 9]:
             ntm[i][i] = 1
 
-        sample_indices = np.arange(len(self.mnist))
+        sample_indices = np.arange(len(self.base_dataset))
 
         # generate noisy label by noise transition matrix
         for i in sample_indices:
-            label = np.random.choice(num_classes, p=ntm[self.mnist.targets[i]])
-            if label != self.mnist.targets[i]:
+            label = np.random.choice(num_classes, p=ntm[self.base_dataset.targets[i]])
+            if label != self.base_dataset.targets[i]:
                 self.noisy_sample_idx.append(i)
-            self.mnist.targets[i] = label
+            self.base_dataset.targets[i] = label
 
         self.clean_sample_idx = np.setdiff1d(sample_indices, self.noisy_sample_idx)
 
@@ -79,19 +79,21 @@ class MNISTNoisy(Dataset):
         print('Clean samples:', len(self.clean_sample_idx), 'Noisy samples:', len(self.noisy_sample_idx))
 
     def __len__(self):
-        return self.mnist.__len__()
+        return self.base_dataset.__len__()
 
     def __getitem__(self, index):
-        return self.mnist.__getitem__(index)
+        return self.base_dataset.__getitem__(index)
 
 
 class CIFAR10Noisy(Dataset):
-    def __init__(self, root, train, transform, download, noise_type='symmetric', noise_rate=0.2):
-        self.cifar10 = datasets.CIFAR10(root, train, transform, download=download)
+    def __init__(self, root, train, transform, download, noise_type='symmetric', noise_rate=0.2, need_idx=True):
+        self.base_dataset = datasets.CIFAR10(root, train, transform, download=download)
         self.noise_type = noise_type
         self.noise_rate = noise_rate
         self.noisy_sample_idx = []
         self.clean_sample_idx = []
+        self.need_idx = need_idx
+        self.base_transform=transform
         # add label noise
         if self.noise_type == 'symmetric':
             self.uniform(noise_rate, 10)
@@ -105,15 +107,16 @@ class CIFAR10Noisy(Dataset):
         ntm = noise_rate * np.full((num_classes, num_classes), 1 / (num_classes - 1))
         np.fill_diagonal(ntm, 1 - noise_rate)
 
-        sample_indices = np.arange(len(self.cifar10))
+        sample_indices = np.arange(len(self.base_dataset))
 
         # generate noisy label by noise transition matrix
         for i in sample_indices:
-            label = np.random.choice(num_classes, p=ntm[self.cifar10.targets[i]])
-            if label != self.cifar10.targets[i]:
+            label = np.random.choice(num_classes, p=ntm[self.base_dataset.targets[i]])
+            if label != self.base_dataset.targets[i]:
                 self.noisy_sample_idx.append(i)
-            self.cifar10.targets[i] = label
+            self.base_dataset.targets[i] = label
 
+        self.noisy_sample_idx = np.array(self.noisy_sample_idx)
         self.clean_sample_idx = np.setdiff1d(sample_indices, self.noisy_sample_idx)
 
         print('Noise type: Symmetric')
@@ -134,15 +137,16 @@ class CIFAR10Noisy(Dataset):
         for i in [0, 1, 6, 7, 8]:
             ntm[i][i] = 1
 
-        sample_indices = np.arange(len(self.cifar10))
+        sample_indices = np.arange(len(self.base_dataset))
 
         # generate noisy label by noise transition matrix
         for i in sample_indices:
-            label = np.random.choice(num_classes, p=ntm[self.cifar10.targets[i]])
-            if label != self.cifar10.targets[i]:
+            label = np.random.choice(num_classes, p=ntm[self.base_dataset.targets[i]])
+            if label != self.base_dataset.targets[i]:
                 self.noisy_sample_idx.append(i)
-            self.cifar10.targets[i] = label
+            self.base_dataset.targets[i] = label
 
+        self.noisy_sample_idx = np.array(self.noisy_sample_idx)
         self.clean_sample_idx = np.setdiff1d(sample_indices, self.noisy_sample_idx)
 
         print('Noise type: Asymmetric')
@@ -151,19 +155,23 @@ class CIFAR10Noisy(Dataset):
         print('Clean samples:', len(self.clean_sample_idx), 'Noisy samples:', len(self.noisy_sample_idx))
 
     def __len__(self):
-        return self.cifar10.__len__()
+        return self.base_dataset.__len__()
 
     def __getitem__(self, index):
-        return self.cifar10.__getitem__(index)
+        if self.need_idx:
+            return self.base_dataset.__getitem__(index), index
+        else:
+            return self.base_dataset.__getitem__(index)
 
 
 class CIFAR100Noisy(Dataset):
     def __init__(self, root, train, transform, download, noise_type='symmetric', noise_rate=0.2):
-        self.cifar100 = datasets.CIFAR100(root, train, transform, download=download)
+        self.base_dataset = datasets.CIFAR100(root, train, transform, download=download)
         self.noise_type = noise_type
         self.noise_rate = noise_rate
         self.noisy_sample_idx = []
         self.clean_sample_idx = []
+        self.transform = transform
         # add label noise
         if self.noise_type == 'symmetric':
             self.uniform(noise_rate, 100)
@@ -177,14 +185,14 @@ class CIFAR100Noisy(Dataset):
         ntm = noise_rate * np.full((num_classes, num_classes), 1 / (num_classes - 1))
         np.fill_diagonal(ntm, 1 - noise_rate)
 
-        sample_indices = np.arange(len(self.cifar100))
+        sample_indices = np.arange(len(self.base_dataset))
 
         # generate noisy label by noise transition matrix
         for i in sample_indices:
-            label = np.random.choice(num_classes, p=ntm[self.cifar100.targets[i]])
-            if label != self.cifar100.targets[i]:
+            label = np.random.choice(num_classes, p=ntm[self.base_dataset.targets[i]])
+            if label != self.base_dataset.targets[i]:
                 self.noisy_sample_idx.append(i)
-            self.cifar100.targets[i] = label
+            self.base_dataset.targets[i] = label
 
         self.clean_sample_idx = np.setdiff1d(sample_indices, self.noisy_sample_idx)
 
@@ -205,14 +213,14 @@ class CIFAR100Noisy(Dataset):
         for i in range(num_classes):
             ntm[i][i + 1 if i + 1 < num_classes else 0] = noise_rate
 
-        sample_indices = np.arange(len(self.cifar100))
+        sample_indices = np.arange(len(self.base_dataset))
 
         # generate noisy label by noise transition matrix
         for i in sample_indices:
-            label = np.random.choice(num_classes, p=ntm[self.cifar100.targets[i]])
-            if label != self.cifar100.targets[i]:
+            label = np.random.choice(num_classes, p=ntm[self.base_dataset.targets[i]])
+            if label != self.base_dataset.targets[i]:
                 self.noisy_sample_idx.append(i)
-            self.cifar100.targets[i] = label
+            self.base_dataset.targets[i] = label
 
         self.clean_sample_idx = np.setdiff1d(sample_indices, self.noisy_sample_idx)
 
@@ -222,10 +230,10 @@ class CIFAR100Noisy(Dataset):
         print('Clean samples:', len(self.clean_sample_idx), 'Noisy samples:', len(self.noisy_sample_idx))
 
     def __len__(self):
-        return self.cifar100.__len__()
+        return self.base_dataset.__len__()
 
     def __getitem__(self, index):
-        return self.cifar100.__getitem__(index)
+        return self.base_dataset.__getitem__(index)
 
 
 if __name__ == '__main__':

@@ -15,13 +15,13 @@ import torch.optim as optim
 from torch.utils.data import DataLoader, Subset
 from torchvision import datasets, transforms, utils
 
-from models import MNISTNet, CNN9Layer
+from models import MNISTNet, ResNet18, CNN9Layer
 from utils.dataset import MNISTNoisy, CIFAR10Noisy, CIFAR100Noisy
 
 parser = argparse.ArgumentParser()
-parser.add_argument('-project_name', type=str, help='project name', default='aug10_noisy_cifar10_s0.6_filter')
-parser.add_argument('-noise_type', type=str, help='noise type', default='symmetric')
-parser.add_argument('-noise_rate', type=float, help='noise rate', default=0.6)
+parser.add_argument('-project_name', type=str, help='project name', default='aug10_noisy_cifar10_as0.8_filter_9cnn')
+parser.add_argument('-noise_type', type=str, help='noise type', default='asymmetric')
+parser.add_argument('-noise_rate', type=float, help='noise rate', default=0.8)
 parser.add_argument('-dataset', type=str, help='dataset type', default='cifar10')
 parser.add_argument('-dataset_path', type=str, help='relative path of dataset', default='../dataset')
 parser.add_argument('-num_classes', type=int, help='number of classes', default=10)
@@ -43,13 +43,13 @@ class TransformSeveral:
 
     def __call__(self, inp):
         res = []
-        for i in range(self.transform_times):
+        for _ in range(self.transform_times):
             out = self.transform(inp)
             res.append(out)
         return res
 
 
-def create_dataloader(dataset_type, root, noise_type, noise_rate, transform_times=10):
+def create_dataloader(dataset_type, root, noise_type, noise_rate):
     if dataset_type == 'mnist':
         transform = transforms.Compose([
             transforms.ToTensor(),
@@ -62,8 +62,8 @@ def create_dataloader(dataset_type, root, noise_type, noise_rate, transform_time
         ])
 
         # load noisy dataset
-        train_set = MNISTNoisy(root, train=True, transform=TransformSeveral(transform, transform_times), download=True,
-                               noise_type=noise_type, noise_rate=noise_rate)
+        train_set = MNISTNoisy(root, train=True, transform=transform, download=True, noise_type=noise_type,
+                               noise_rate=noise_rate)
         test_set = datasets.MNIST(root, train=False, transform=test_transform, download=False)
         val_set = test_set
 
@@ -74,7 +74,6 @@ def create_dataloader(dataset_type, root, noise_type, noise_rate, transform_time
         transform = transforms.Compose([
             transforms.RandomCrop(32, padding=4),
             transforms.RandomHorizontalFlip(),
-            # transforms.RandomRotation(20),
             transforms.ToTensor(),
             transforms.Normalize(mean, std)
         ])
@@ -85,9 +84,8 @@ def create_dataloader(dataset_type, root, noise_type, noise_rate, transform_time
         ])
 
         # load noisy dataset
-        train_set = CIFAR10Noisy(root, train=True, transform=TransformSeveral(transform, transform_times),
-                                 download=True,
-                                 noise_type=noise_type, noise_rate=noise_rate)
+        train_set = CIFAR10Noisy(root, train=True, transform=transform, download=True, noise_type=noise_type,
+                                 noise_rate=noise_rate, need_idx=True)
         test_set = datasets.CIFAR10(root, train=False, transform=test_transform, download=False)
         val_set = test_set
 
@@ -107,58 +105,17 @@ def create_dataloader(dataset_type, root, noise_type, noise_rate, transform_time
             transforms.Normalize(mean, std)])
 
         # load noisy dataset
-        train_set = CIFAR100Noisy(root, train=True, transform=TransformSeveral(transform, transform_times),
-                                  download=True, noise_type=noise_type, noise_rate=noise_rate)
+        train_set = CIFAR100Noisy(root, train=True, transform=transform, download=True, noise_type=noise_type,
+                                  noise_rate=noise_rate)
         test_set = datasets.CIFAR100(root, train=False, transform=test_transform, download=False)
         val_set = test_set
 
     # generate DataLoader
-    train_loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=False)
+    train_loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=True)
     val_loader = DataLoader(val_set, batch_size=args.batch_size, shuffle=False)
     test_loader = DataLoader(test_set, batch_size=args.batch_size, shuffle=False)
 
-    return train_loader, val_loader, test_loader, train_set.clean_sample_idx, train_set.noisy_sample_idx, len(
-        train_set), train_set
-
-
-def get_dataloader_by_clean_idxs(dataset_type, root, clean_idxs):
-    if dataset_type == 'mnist':
-        transform = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Normalize(mean=(0.1307,), std=(0.3081,))
-        ])
-
-        train_set = datasets.MNIST(root, train=True, transform=transform, download=False)
-
-    elif dataset_type == 'cifar10':
-        mean = [0.49139968, 0.48215827, 0.44653124]
-        std = [0.24703233, 0.24348505, 0.26158768]
-        transform = transforms.Compose([
-            transforms.RandomCrop(32, padding=4),
-            transforms.RandomHorizontalFlip(),
-            transforms.RandomRotation(20),
-            transforms.ToTensor(),
-            transforms.Normalize(mean, std)
-        ])
-        train_set = datasets.CIFAR10(root, train=True, transform=transform, download=False)
-
-    elif dataset_type == 'cifar100':
-        mean = [0.5071, 0.4865, 0.4409]
-        std = [0.2673, 0.2564, 0.2762]
-
-        transform = transforms.Compose([
-            transforms.RandomCrop(32, padding=4),
-            transforms.RandomHorizontalFlip(),
-            transforms.RandomRotation(20),
-            transforms.ToTensor(),
-            transforms.Normalize(mean, std)])
-
-        train_set = datasets.CIFAR100(root, train=True, transform=transform, download=False)
-
-    # generate DataLoader
-    clean_set = Subset(train_set, clean_idxs)
-    train_loader = DataLoader(clean_set, batch_size=args.batch_size, shuffle=True)
-    return train_loader
+    return train_loader, val_loader, test_loader, train_set
 
 
 def get_model(dataset_type):
@@ -167,17 +124,19 @@ def get_model(dataset_type):
     elif dataset_type == 'cifar10':
         # model = CIFAR10Net().to(device)
         model = CNN9Layer(num_classes=10, input_shape=3).to(device)
+        # model = ResNet18(num_classes=10).to(device)
     elif dataset_type == 'cifar100':
-        model = CNN9Layer(num_classes=100, input_shape=3).to(device)
+        # model = CNN9Layer(num_classes=100, input_shape=3).to(device)
+        model = ResNet18(num_classes=100).to(device)
     return model
 
 
-def train_aug(model, train_loader, optimizer, epoch, device, train_loss_lst, train_acc_lst, sample_loss,
-              sample_pred_right_times):
+def train_aug_each_epoch(model, train_loader, optimizer, epoch, device, train_loss_lst, train_acc_lst, sample_loss,
+                         sample_pred_right_times):
     model.train()
     correct = 0
     train_loss = 0
-    for batch_idx, (inputs_aug, labels) in enumerate(train_loader):
+    for batch_idx, ((inputs_aug, labels), indices) in enumerate(train_loader):
         for i in range(len(inputs_aug)):
             inputs = inputs_aug[i]
             inputs, labels = inputs.to(device), labels.to(device)
@@ -186,8 +145,9 @@ def train_aug(model, train_loader, optimizer, epoch, device, train_loss_lst, tra
             pred = outputs.max(1, keepdim=True)[1]
             pred_eq = pred.eq(labels.view_as(pred)).squeeze()
 
-            sample_pred_right_times[
-            batch_idx * args.batch_size:batch_idx * args.batch_size + inputs.size(0)] += pred_eq.detach().cpu().numpy()
+            # sample_pred_right_times[
+            # batch_idx * args.batch_size:batch_idx * args.batch_size + inputs.size(0)] += pred_eq.detach().cpu().numpy()
+            sample_pred_right_times[indices] += pred_eq.detach().cpu().numpy()
 
             if i == 0:
                 correct += pred.eq(labels.view_as(pred)).sum().item()
@@ -195,7 +155,8 @@ def train_aug(model, train_loader, optimizer, epoch, device, train_loss_lst, tra
                 criterion = nn.CrossEntropyLoss(reduction='none')
                 loss = criterion(outputs, labels)
                 n_loss = loss.detach().cpu().numpy()
-                sample_loss[batch_idx * args.batch_size:batch_idx * args.batch_size + inputs.size(0)] += n_loss
+                # sample_loss[batch_idx * args.batch_size:batch_idx * args.batch_size + inputs.size(0)] += n_loss
+                sample_loss[indices] += n_loss
                 loss = loss.mean()
 
                 optimizer.zero_grad()
@@ -225,14 +186,13 @@ def train_aug(model, train_loader, optimizer, epoch, device, train_loss_lst, tra
     return train_loss_lst, train_acc_lst, sample_loss, sample_pred_right_times
 
 
-def train_aug_filter(model, train_loader, optimizer, epoch, device, train_loss_lst, train_acc_lst, sample_loss,
-                     sample_pred_right_times, filter_epoch):
-    model.train()
+def train_aug_filter(model, train_loader, optimizer, epoch, device, train_loss_lst, train_acc_lst, sample_loss):
     correct = 0
     train_loss = 0
 
-    for batch_idx, (inputs_aug, labels) in enumerate(train_loader):
-        inputs = inputs_aug[0]
+    for batch_idx, ((inputs_aug, labels), indices) in enumerate(train_loader):
+        model.train()
+        inputs = inputs_aug
         inputs, labels = inputs.to(device), labels.to(device)
         outputs = model(inputs)
 
@@ -243,7 +203,8 @@ def train_aug_filter(model, train_loader, optimizer, epoch, device, train_loss_l
         criterion = nn.CrossEntropyLoss(reduction='none')
         loss = criterion(outputs, labels)
         n_loss = loss.detach().cpu().numpy()
-        sample_loss[batch_idx * args.batch_size:batch_idx * args.batch_size + inputs.size(0)] += n_loss
+        # sample_loss[batch_idx * args.batch_size:batch_idx * args.batch_size + inputs.size(0)] += n_loss
+        sample_loss[indices] += n_loss
         loss = loss.mean()
 
         optimizer.zero_grad()
@@ -266,26 +227,11 @@ def train_aug_filter(model, train_loader, optimizer, epoch, device, train_loss_l
                   .format(epoch, batch_idx * len(inputs), len(train_loader.dataset),
                           100. * batch_idx / len(train_loader), loss.item()))
 
-        if epoch in filter_epoch:
-            model.eval()
-            with torch.no_grad():
-                for i in range(len(inputs_aug)):
-                    inputs = inputs_aug[i]
-                    inputs, labels = inputs.to(device), labels.to(device)
-                    outputs = model(inputs)
-
-                    pred = outputs.max(1, keepdim=True)[1]
-                    pred_eq = pred.eq(labels.view_as(pred)).squeeze()
-
-                    sample_pred_right_times[
-                    batch_idx * args.batch_size:batch_idx * args.batch_size + inputs.size(
-                        0)] += pred_eq.detach().cpu().numpy()
-
     # record loss and accuracy
     train_loss /= len(train_loader)  # must divide iter num
     train_loss_lst.append(train_loss)
     train_acc_lst.append(correct / len(train_loader.dataset))
-    return train_loss_lst, train_acc_lst, sample_loss, sample_pred_right_times
+    return train_loss_lst, train_acc_lst, sample_loss
 
 
 def train(model, train_loader, optimizer, epoch, device, train_loss_lst, train_acc_lst):
@@ -293,7 +239,12 @@ def train(model, train_loader, optimizer, epoch, device, train_loss_lst, train_a
     correct = 0
     train_loss = 0
     for batch_idx, (inputs, labels) in enumerate(train_loader):
-        inputs, labels = inputs.to(device), labels.to(device)
+        try:
+            inputs, labels = inputs.to(device), labels.to(device)
+        except:
+            print(len(inputs), len(labels))
+            print(inputs[0].shape, labels[0].shape)
+            exit()
         outputs = model(inputs)
 
         pred = outputs.max(1, keepdim=True)[1]
@@ -317,7 +268,7 @@ def train(model, train_loader, optimizer, epoch, device, train_loss_lst, train_a
             plt.close(fig)
 
         # print train loss and accuracy
-        if (batch_idx + 1) % 100 == 0:
+        if (batch_idx + 1) % 50 == 0:
             print('Train Epoch: {} [{}/{} ({:.1f}%)]  Loss: {:.6f}'
                   .format(epoch, batch_idx * len(inputs), len(train_loader.dataset),
                           100. * batch_idx / len(train_loader), loss.item()))
@@ -385,6 +336,7 @@ def test(model, test_loader, device):
 
 def set_seed(seed):
     torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
     np.random.seed(seed)
     random.seed(seed)
 
@@ -393,13 +345,16 @@ if __name__ == "__main__":
     set_seed(args.seed)
 
     # create output folder
-    now = time.strftime('%Y-%m-%d-%H-%M-%S', time.localtime())
+    now = time.strftime('%Y-%m-%d %H-%M-%S', time.localtime())
     output_path = os.path.join(args.log_dir, args.project_name + ' ' + now)
     os.makedirs(output_path)
 
     # get data loader
-    train_loader, val_loader, test_loader, clean_sample_idx, noisy_sample_idx, dataset_len, train_set = \
-        create_dataloader(args.dataset, args.dataset_path, args.noise_type, args.noise_rate, 1)
+    train_loader, val_loader, test_loader, train_set = create_dataloader(args.dataset, args.dataset_path,
+                                                                         args.noise_type, args.noise_rate)
+    clean_sample_idx = train_set.clean_sample_idx
+    noisy_sample_idx = train_set.noisy_sample_idx
+    dataset_len = len(train_set)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -419,19 +374,8 @@ if __name__ == "__main__":
 
     # Main loop(train,val,test)
     for epoch in range(args.epochs):
-
-        if epoch in [args.epochs - 1]:
-            train_loader, val_loader, test_loader, clean_sample_idx, noisy_sample_idx, dataset_len, train_set = \
-                create_dataloader(args.dataset, args.dataset_path, args.noise_type, args.noise_rate, args.aug_nums)
-
-        train_loss_lst, train_acc_lst, sample_loss, sample_pred_right_times = train_aug_filter(model, train_loader,
-                                                                                               optimizer,
-                                                                                               epoch, device,
-                                                                                               train_loss_lst,
-                                                                                               train_acc_lst,
-                                                                                               sample_loss,
-                                                                                               sample_pred_right_times,
-                                                                                               [args.epochs - 1])
+        train_loss_lst, train_acc_lst, sample_loss = train_aug_filter(model, train_loader, optimizer, epoch, device,
+                                                                      train_loss_lst, train_acc_lst, sample_loss)
 
         # calculate mean, min, max loss of clean and noisy samples
         clean_sample_loss = sample_loss[clean_sample_idx]
@@ -451,22 +395,6 @@ if __name__ == "__main__":
         print('Clean sample mean loss:', clean_mean_loss, 'Noisy sample mean loss:', noisy_mean_loss)
         sample_loss = np.zeros(dataset_len)
 
-        # plot clean and noisy sample prediction right times hist
-        if epoch in [args.epochs - 1]:
-            clean_sample_pred_right_times = sample_pred_right_times[clean_sample_idx]
-            noisy_sample_pred_right_times = sample_pred_right_times[noisy_sample_idx]
-            fig = plt.figure('Clean and noisy samples prediction right times', dpi=150)
-            plt.hist(clean_sample_pred_right_times, bins=np.arange(0, args.aug_nums + 2), color="green", alpha=0.8,
-                     label='clean samples')
-            plt.hist(noisy_sample_pred_right_times, bins=np.arange(0, args.aug_nums + 2), color="red", alpha=0.5,
-                     label='noisy samples')
-            plt.grid(True)
-            plt.xlabel('prediction right times')
-            plt.ylabel('frequency')
-            plt.legend(loc="upper right")
-            plt.savefig(os.path.join(output_path, 'epoch' + str(epoch) + '.png'))
-            plt.close(fig)
-
         # sample_pred_right_times = np.zeros(dataset_len)  # regenerate
 
         val_loss_lst, val_acc_lst = validate(model, val_loader, device, val_loss_lst, val_acc_lst)
@@ -478,16 +406,49 @@ if __name__ == "__main__":
 
     test(model, test_loader, device)
 
-    zero_pred_right = np.sum(sample_pred_right_times == 0)
-    one_pred_right = np.sum(sample_pred_right_times == 1)
-    zero_pred_right_noisy = np.sum(noisy_sample_pred_right_times == 0)
-    one_pred_right_noisy = np.sum(noisy_sample_pred_right_times == 1)
-    print('predict 0 right:', zero_pred_right, 'predict 0 right noisy:', zero_pred_right,
-          zero_pred_right_noisy / len(noisy_sample_idx))
-    print('predict 1 right:', one_pred_right, 'predict 1 right noisy:', one_pred_right,
-          one_pred_right_noisy / len(noisy_sample_idx))
+    # calculate aug prediction right times
+    model.eval()
+    train_set.base_dataset.transform = TransformSeveral(train_set.base_transform, args.aug_nums)
+    filter_loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=True)
+    for batch_idx, ((inputs_aug, labels), indices) in enumerate(filter_loader):
+        with torch.no_grad():
+            for i in range(len(inputs_aug)):
+                inputs = inputs_aug[i]
+                inputs, labels = inputs.to(device), labels.to(device)
+                outputs = model(inputs)
 
-    # get sample index whose prediction right times=0, also might be noisy samples indexes！
+                pred = outputs.max(1, keepdim=True)[1]
+                pred_eq = pred.eq(labels.view_as(pred)).squeeze()
+
+                # sample_pred_right_times[batch_idx * args.batch_size:batch_idx * args.batch_size + inputs.size(
+                #     0)] += pred_eq.detach().cpu().numpy()
+                sample_pred_right_times[indices] += pred_eq.detach().cpu().numpy()
+
+    # plot clean and noisy sample prediction right times hist
+    clean_sample_pred_right_times = sample_pred_right_times[clean_sample_idx]
+    noisy_sample_pred_right_times = sample_pred_right_times[noisy_sample_idx]
+    fig = plt.figure('Clean and noisy samples prediction right times', dpi=150)
+    plt.hist(clean_sample_pred_right_times, bins=np.arange(0, args.aug_nums + 2), color="green", alpha=0.8,
+             label='clean samples')
+    plt.hist(noisy_sample_pred_right_times, bins=np.arange(0, args.aug_nums + 2), color="red", alpha=0.5,
+             label='noisy samples')
+    plt.grid(True)
+    plt.xlabel('prediction right times')
+    plt.ylabel('frequency')
+    plt.legend(loc="upper right")
+    plt.savefig(os.path.join(output_path, 'epoch' + str(args.epochs - 1) + '.png'))
+    plt.close(fig)
+
+    zero_pred_right_num = np.sum(sample_pred_right_times == 0)
+    one_pred_right_num = np.sum(sample_pred_right_times == 1)
+    zero_pred_right_noisy_num = np.sum(noisy_sample_pred_right_times == 0)
+    one_pred_right_noisy_num = np.sum(noisy_sample_pred_right_times == 1)
+    print('predict 0 right:', zero_pred_right_num, 'predict 0 right noisy:', zero_pred_right_noisy_num,
+          zero_pred_right_noisy_num / len(noisy_sample_idx))
+    print('predict 1 right:', one_pred_right_num, 'predict 1 right noisy:', one_pred_right_noisy_num,
+          one_pred_right_noisy_num / len(noisy_sample_idx))
+
+    # get sample index whose prediction right times=0, also might be noisy samples indices！
     zero_pred_right_idxs = np.where(sample_pred_right_times == 0)
     noisy_idxs = zero_pred_right_idxs
 
@@ -508,14 +469,17 @@ if __name__ == "__main__":
     plt.xlabel('epoch')
     plt.ylabel('acc-loss')
     plt.legend(loc="upper right")
-    plt.savefig(os.path.join(output_path, 'loss_acc_train_aug.png'))
+    plt.savefig(os.path.join(output_path, 'loss_acc_train_aug_filter.png'))
     # plt.show()
     plt.close(fig)
 
     # =====================================retrain using clean samples==================================================
     clean_idxs = np.setdiff1d(np.arange(len(train_set)), noisy_idxs)
     print('Filtered clean set:', len(clean_idxs))
-    train_loader = get_dataloader_by_clean_idxs(args.dataset, args.dataset_path, clean_idxs)
+    train_set.base_dataset.transform = train_set.base_transform
+    train_set.need_idx = False
+    clean_set = Subset(train_set, clean_idxs)
+    train_loader = DataLoader(clean_set, batch_size=args.batch_size, shuffle=True)
 
     model = get_model(args.dataset)
 

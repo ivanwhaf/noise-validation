@@ -1,7 +1,3 @@
-"""
-2021/5/8
-train baseline noisy
-"""
 import argparse
 import os
 import random
@@ -11,20 +7,21 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms, utils
 
-from models import MNISTNet, CNN9Layer, ResNet18
+from models import MNISTNet, CNN9Layer
 from utils.dataset import MNISTNoisy, CIFAR10Noisy, CIFAR100Noisy
 
 parser = argparse.ArgumentParser()
-parser.add_argument('-project_name', type=str, help='project name', default='noisy_cifar100_as0.8_9cnn')
-parser.add_argument('-noise_type', type=str, help='noise type', default='asymmetric')
-parser.add_argument('-noise_rate', type=float, help='noise rate', default=0.8)
-parser.add_argument('-dataset', type=str, help='dataset type', default='cifar100')
+parser.add_argument('-project_name', type=str, help='project name', default='mae_judge_cifar10_s0.4')
+parser.add_argument('-noise_type', type=str, help='noise type', default='symmetric')
+parser.add_argument('-noise_rate', type=float, help='noise rate', default=0.4)
+parser.add_argument('-dataset', type=str, help='dataset type', default='cifar10')
 parser.add_argument('-dataset_path', type=str, help='relative path of dataset', default='../dataset')
-parser.add_argument('-num_classes', type=int, help='number of classes', default=100)
+parser.add_argument('-num_classes', type=int, help='number of classes', default=10)
 parser.add_argument('-epochs', type=int, help='training epochs', default=100)
 parser.add_argument('-batch_size', type=int, help='batch size', default=128)
 parser.add_argument('-lr', type=float, help='learning rate', default=0.01)
@@ -117,13 +114,22 @@ def train(model, train_loader, optimizer, epoch, device, train_loss_lst, train_a
         correct += pred.eq(labels.view_as(pred)).sum().item()
 
         # record loss
-        criterion = nn.CrossEntropyLoss(reduction='none')
-        loss = criterion(outputs, labels)
+        # criterion = nn.CrossEntropyLoss(reduction='none')
+        outputs = F.softmax(outputs, dim=1)
+
+        labels = F.one_hot(labels, args.num_classes).to(device)
+
+        loss = 1. - torch.sum(labels * outputs, dim=1)
+
+        # criterion = nn.L1Loss(reduction='none')
+        # loss = criterion(outputs, labels)
+        # loss = torch.mean(loss, dim=1)
         n_loss = loss.detach().cpu().numpy()
+        # print(outputs.shape, labels.shape, loss.shape, n_loss.shape, loss, n_loss)
+
         sample_loss[batch_idx * args.batch_size:batch_idx * args.batch_size + inputs.size(0)] += n_loss
         loss = loss.mean()
-        # criterion = nn.CrossEntropyLoss()
-        # loss = criterion(outputs, labels)
+
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
@@ -236,8 +242,7 @@ if __name__ == "__main__":
         model = CNN9Layer(num_classes=10, input_shape=3).to(device)
         # model = ResNet18(num_classes=10).to(device)
     elif args.dataset == 'cifar100':
-        # model = CNN9Layer(num_classes=100, input_shape=3).to(device)
-        model = ResNet18(num_classes=100).to(device)
+        model = CNN9Layer(num_classes=100, input_shape=3).to(device)
 
     optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9, weight_decay=args.l2_reg)
 
@@ -272,6 +277,16 @@ if __name__ == "__main__":
         noisy_max_loss_lst.append(noisy_max_loss)
         print('Clean sample mean loss:', clean_mean_loss, 'Noisy sample mean loss:', noisy_mean_loss)
         sample_loss = np.zeros(dataset_len)
+
+        fig = plt.figure('Clean and noisy samples loss', dpi=150)
+        plt.hist(clean_sample_loss, bins=100, color="green", alpha=0.8, label='clean samples')
+        plt.hist(noisy_sample_loss, bins=100, color="red", alpha=0.5, label='noisy samples')
+        plt.grid(True)
+        plt.xlabel('loss')
+        plt.ylabel('frequency')
+        plt.legend(loc="upper right")
+        plt.savefig(os.path.join(output_path, 'epoch' + str(epoch) + '.png'))
+        plt.close(fig)
 
         val_loss_lst, val_acc_lst = validate(
             model, val_loader, device, val_loss_lst, val_acc_lst)

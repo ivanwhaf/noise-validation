@@ -15,17 +15,17 @@ import torch.optim as optim
 from torch.utils.data import DataLoader, Subset
 from torchvision import datasets, transforms, utils
 
-from models import MNISTNet, CNN9Layer, CIFAR10Net
+from models import MNISTNet, CNN9Layer, CIFAR10Net, ResNet18
 
 parser = argparse.ArgumentParser()
-parser.add_argument('-project_name', type=str, help='project name', default='cifar100_baseline')
+parser.add_argument('-project_name', type=str, help='project name', default='cifar100_baseline_resnet')
 parser.add_argument('-dataset_path', type=str, help='relative path of dataset', default='../dataset')
 parser.add_argument('-dataset', type=str, help='dataset type', default='cifar100')
 parser.add_argument('-num_classes', type=int, help='number of classes', default=100)
 parser.add_argument('-epochs', type=int, help='training epochs', default=100)
 parser.add_argument('-batch_size', type=int, help='batch size', default=128)
 parser.add_argument('-lr', type=float, help='learning rate', default=0.01)
-parser.add_argument('-l2_reg', type=float, help='l2 regularization', default=1e-4)
+parser.add_argument('-l2_reg', type=float, help='l2 regularization', default=5e-4)
 parser.add_argument('-seed', type=int, help='numpy and pytorch seed', default=0)
 parser.add_argument('-log_dir', type=str, help='log dir', default='output')
 args = parser.parse_args()
@@ -68,7 +68,7 @@ def create_dataloader(dataset_type, root):
         # load dataset
         train_set = datasets.CIFAR10(root, train=True, transform=transform, download=True)
         test_set = datasets.CIFAR10(root, train=False, transform=test_transform, download=False)
-        train_set = Subset(train_set, indices=np.random.permutation(len(train_set))[:4000])
+        # train_set = Subset(train_set, indices=np.random.permutation(len(train_set))[:4000])
         val_set = test_set
 
     elif dataset_type == 'cifar100':
@@ -198,6 +198,7 @@ def test(model, test_loader, device):
 
 def set_seed(seed):
     torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
     np.random.seed(seed)
     random.seed(seed)
 
@@ -217,10 +218,12 @@ if __name__ == "__main__":
     if args.dataset == 'mnist':
         model = MNISTNet().to(device)
     elif args.dataset == 'cifar10':
-        model = CIFAR10Net().to(device)
+        # model = CIFAR10Net().to(device)
+        model = ResNet18(num_classes=10).to(device)
         # model = CNN9Layer(num_classes=10, input_shape=3).to(device)
     elif args.dataset == 'cifar100':
-        model = CNN9Layer(num_classes=100, input_shape=3).to(device)
+        # model = CNN9Layer(num_classes=100, input_shape=3).to(device)
+        model = ResNet18(num_classes=100).to(device)
 
     optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9, weight_decay=args.l2_reg)
 
